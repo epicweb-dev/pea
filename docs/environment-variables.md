@@ -1,6 +1,6 @@
 # Environment variables
 
-Use this guide when you add a new environment variable to the starter. It keeps
+Use this guide when you add a new environment variable to `pea`. It keeps
 types, runtime validation, and documentation in sync.
 
 ## Steps

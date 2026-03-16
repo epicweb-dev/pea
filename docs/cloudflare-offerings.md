@@ -7,14 +7,15 @@ pea ships with:
   `@cloudflare/workers-oauth-provider`)
 - Durable Objects (`MCP_OBJECT`) for MCP server state
 
-This guide covers how to add common Cloudflare offerings on top of the starter:
+This guide covers how to add common Cloudflare offerings on top of the current
+`pea` service foundation:
 
 - R2 (object storage)
 - Workers AI
 - AI Gateway
 - An additional KV namespace for app data (separate from `OAUTH_KV`)
 
-All examples assume you are using the template's `wrangler.jsonc` and that you
+All examples assume you are using this project's `wrangler.jsonc` and that you
 run commands from the repo root.
 
 ## Authentication: `wrangler login` vs API tokens
@@ -37,7 +38,7 @@ Cloudflare's API token UI changes over time, but the shape is stable:
 - You grant **Read**/**Edit** per product area
 - Wrangler deploys, creates resources, and sets secrets via the API token
 
-Recommended baseline permissions for this template (deploy + existing D1/KV):
+Recommended baseline permissions for this project (deploy + existing D1/KV):
 
 - `Workers Scripts:Edit` (deploy, update, delete preview Workers)
 - `Workers KV Storage:Edit` (OAuth/session KV)
@@ -185,7 +186,7 @@ Most provider SDKs support overriding the base URL:
 - Keep the provider API key as a Worker secret (for example `OPENAI_API_KEY`)
 - Point the SDK's base URL at the gateway URL
 
-For this starter's chat implementation, remote AI mode is expected to use a
+For the current chat implementation, remote AI mode is expected to use a
 gateway. Set `AI_GATEWAY_ID` in local `.env` when opting into `AI_MODE=remote`,
 and configure GitHub Actions secrets so deploy workflows can sync it into the
 worker secrets. Use `AI_GATEWAY_ID` for production deploys and
@@ -194,8 +195,8 @@ through a different gateway.
 
 ## KV (app KV, separate from `OAUTH_KV`)
 
-This template already binds `OAUTH_KV` for OAuth/session state. Treat `OAUTH_KV`
-as "owned" by `@cloudflare/workers-oauth-provider`:
+This project already binds `OAUTH_KV` for OAuth/session state. Treat
+`OAUTH_KV` as "owned" by `@cloudflare/workers-oauth-provider`:
 
 - Avoid mixing app data into `OAUTH_KV`
 - Avoid key prefix collisions with the OAuth library
@@ -240,7 +241,7 @@ If you're looking for a higher-level way to integrate AI (streaming responses,
 tool/function calling, typed outputs, and a clean client/server contract),
 consider TanStack AI.
 
-This starter is not a React app, so the main thing to know is: TanStack AI is
+This project is not a React app, so the main thing to know is: TanStack AI is
 framework-agnostic at its core. You can use:
 
 - `@tanstack/ai` on the server (Workers) to run models and tools

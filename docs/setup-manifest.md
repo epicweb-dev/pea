@@ -2,6 +2,8 @@
 
 This document describes the infrastructure and secrets that pea expects.
 
+These are the baseline resources for running the stakeholder simulation service.
+
 ## Cloudflare resources
 
 This project uses the following resources:
@@ -13,14 +15,14 @@ This project uses the following resources:
   - `title`: `<app-name>-oauth`
 
 Production CI deploys now ensure these resources exist and create them when
-missing. The post-download script does not create Cloudflare resources and does
-not rewrite `wrangler.jsonc` resource IDs. Cloudflare deploys do not auto-create
-these resources from bindings alone, so the deploy workflow runs
+missing. Local setup does not create Cloudflare resources or rewrite
+`wrangler.jsonc` resource IDs. Cloudflare deploys do not auto-create these
+resources from bindings alone, so the deploy workflow runs
 `bun tools/ci/production-resources.ts ensure` first.
 
 ## Optional Cloudflare offerings
 
-The starter intentionally keeps the default footprint small. If you want to add
+The project intentionally keeps the default footprint small. If you want to add
 additional Cloudflare offerings (R2, Workers AI, AI Gateway, or a separate KV
 namespace for app data), see:
 

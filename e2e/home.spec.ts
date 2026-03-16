@@ -4,7 +4,9 @@ test('home page renders the shell', async ({ page }) => {
 	await page.goto('/')
 	await expect(page).toHaveTitle('pea')
 	await expect(
-		page.getByRole('heading', { name: 'pea Remix 3' }),
+		page.getByRole('heading', {
+			name: 'Stakeholder simulations for engineering judgment workshops',
+		}),
 	).toBeVisible()
 })
 
