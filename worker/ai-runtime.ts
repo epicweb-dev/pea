@@ -87,7 +87,6 @@ function createRemoteAiRuntime(env: WorkersAiCredentialsEnv): AiRuntime {
 					messages: await convertToModelMessages(input.messages),
 					tools: input.tools,
 					abortSignal: input.abortSignal,
-					maxSteps: 5,
 				})
 				return {
 					kind: 'text',

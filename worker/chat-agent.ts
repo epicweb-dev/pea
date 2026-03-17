@@ -134,17 +134,17 @@ function buildMessageTextForAgentContext(message: UIMessage) {
 }
 
 function buildConversationMessagesForAgent(messages: Array<UIMessage>) {
-	return messages
-		.map((message) => {
-			const text = buildMessageTextForAgentContext(message)
-			if (!text) return null
-			return {
-				id: message.id,
-				role: message.role,
-				parts: [{ type: 'text', text }],
-			} satisfies UIMessage
+	const conversationMessages: Array<UIMessage> = []
+	for (const message of messages) {
+		const text = buildMessageTextForAgentContext(message)
+		if (!text) continue
+		conversationMessages.push({
+			id: message.id,
+			role: message.role,
+			parts: [{ type: 'text', text }],
 		})
-		.filter((message): message is UIMessage => Boolean(message))
+	}
+	return conversationMessages
 }
 
 function buildThreadTitle(messages: Array<UIMessage>) {
