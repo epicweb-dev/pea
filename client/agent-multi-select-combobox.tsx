@@ -74,10 +74,29 @@ export function AgentMultiSelectCombobox(handle: Handle) {
 		})
 	}
 
+	function getPopover(popoverId: string) {
+		const popover = document.getElementById(popoverId)
+		return popover instanceof HTMLElement ? popover : null
+	}
+
+	function openPopover(popoverId: string) {
+		const popover = getPopover(popoverId)
+		if (!popover || popover.matches(':popover-open')) return
+		popover.showPopover()
+	}
+
+	function closePopover(popoverId: string) {
+		const popover = getPopover(popoverId)
+		if (!popover || !popover.matches(':popover-open')) return
+		popover.hidePopover()
+	}
+
 	return (props: AgentMultiSelectComboboxProps) => {
 		const buttonId = `${props.id}-button`
 		const inputId = `${props.id}-search`
 		const listboxId = `${props.id}-listbox`
+		const popoverId = `${props.id}-popover`
+		const anchorName = `--${props.id}-anchor`
 		const selectedAgentCount = props.selectedAgentIds.length
 		const normalizedSearch = normalizeSearchValue(search)
 		const filteredAgents = props.agents.filter((agent) => {
@@ -97,41 +116,18 @@ export function AgentMultiSelectCombobox(handle: Handle) {
 				? highlightedAgentId
 				: filteredAgents[0]?.id ?? null
 
-		function openCombobox() {
-			if (props.disabled) return
-			isOpen = true
-			if (
-				!filteredAgents.some((agent) => agent.id === highlightedAgentId) &&
-				filteredAgents[0]
-			) {
-				highlightedAgentId = filteredAgents[0].id
+		function handlePopoverToggle(event: Event) {
+			if (!(event.currentTarget instanceof HTMLElement)) return
+			isOpen = event.currentTarget.matches(':popover-open')
+			if (isOpen) {
+				highlightedAgentId = filteredAgents[0]?.id ?? null
+				update()
+				focusInput(inputId)
+				return
 			}
-			update()
-			focusInput(inputId)
-		}
-
-		function closeCombobox() {
-			if (!isOpen) return
-			isOpen = false
 			search = ''
 			highlightedAgentId = null
 			update()
-		}
-
-		function toggleCombobox() {
-			if (isOpen) {
-				closeCombobox()
-				return
-			}
-			openCombobox()
-		}
-
-		function handleWrapperFocusOut(event: FocusEvent) {
-			if (!(event.currentTarget instanceof HTMLDivElement)) return
-			const nextTarget =
-				event.relatedTarget instanceof Node ? event.relatedTarget : null
-			if (nextTarget && event.currentTarget.contains(nextTarget)) return
-			closeCombobox()
 		}
 
 		function handleButtonKeyDown(event: KeyboardEvent) {
@@ -145,7 +141,7 @@ export function AgentMultiSelectCombobox(handle: Handle) {
 				return
 			}
 			event.preventDefault()
-			openCombobox()
+			openPopover(popoverId)
 		}
 
 		function handleSearchInput(event: Event) {
@@ -183,7 +179,7 @@ export function AgentMultiSelectCombobox(handle: Handle) {
 		function handleSearchKeyDown(event: KeyboardEvent) {
 			if (event.key === 'Escape') {
 				event.preventDefault()
-				closeCombobox()
+				closePopover(popoverId)
 				focusButton(buttonId)
 				return
 			}
@@ -206,9 +202,7 @@ export function AgentMultiSelectCombobox(handle: Handle) {
 
 		return (
 			<div
-				on={{ focusout: handleWrapperFocusOut }}
 				css={{
-					position: 'relative',
 					display: 'grid',
 					gap: spacing.xs,
 				}}
@@ -217,14 +211,16 @@ export function AgentMultiSelectCombobox(handle: Handle) {
 					id={buttonId}
 					type="button"
 					disabled={props.disabled}
+					popovertarget={popoverId}
+					popovertargetaction="toggle"
 					aria-haspopup="listbox"
 					aria-expanded={isOpen}
 					aria-controls={isOpen ? listboxId : undefined}
 					on={{
-						click: toggleCombobox,
 						keydown: handleButtonKeyDown,
 					}}
 					css={{
+						anchorName,
 						display: 'flex',
 						alignItems: 'center',
 						justifyContent: 'space-between',
@@ -243,182 +239,185 @@ export function AgentMultiSelectCombobox(handle: Handle) {
 					<span>{selectedAgentCount} agents in this chat</span>
 					<span aria-hidden="true">{isOpen ? '▲' : '▼'}</span>
 				</button>
-				{isOpen ? (
-					<div
+				<div
+					id={popoverId}
+					popover="auto"
+					on={{ toggle: handlePopoverToggle }}
+					css={{
+						position: 'fixed',
+						positionAnchor: anchorName,
+						top: `calc(anchor(bottom) + ${spacing.xs})`,
+						left: 'anchor(left)',
+						minWidth: 'anchor-size(width)',
+						maxWidth: 'min(24rem, calc(100vw - 2rem))',
+						margin: 0,
+						display: 'grid',
+						gap: spacing.sm,
+						padding: spacing.md,
+						borderRadius: radius.lg,
+						border: `1px solid ${colors.border}`,
+						backgroundColor: colors.surface,
+						boxShadow: shadows.md,
+					}}
+				>
+					<div css={{ display: 'grid', gap: spacing.xs }}>
+						<strong css={{ color: colors.text, fontSize: typography.fontSize.sm }}>
+							Included agents
+						</strong>
+						<p
+							css={{
+								margin: 0,
+								color: colors.textMuted,
+								fontSize: typography.fontSize.sm,
+								lineHeight: 1.5,
+							}}
+						>
+							{selectedAgentSummary}
+						</p>
+					</div>
+					<input
+						id={inputId}
+						type="search"
+						autocomplete="off"
+						value={search}
+						placeholder="Search agents"
+						aria-label="Search agents"
+						on={{
+							input: handleSearchInput,
+							keydown: handleSearchKeyDown,
+						}}
 						css={{
-							position: 'absolute',
-							top: 'calc(100% + 0.5rem)',
-							left: 0,
-							right: 0,
-							zIndex: 20,
-							display: 'grid',
-							gap: spacing.sm,
-							padding: spacing.md,
-							borderRadius: radius.lg,
+							width: '100%',
+							padding: `${spacing.xs} ${spacing.sm}`,
+							borderRadius: radius.md,
 							border: `1px solid ${colors.border}`,
-							backgroundColor: colors.surface,
-							boxShadow: shadows.md,
+							backgroundColor: colors.background,
+							color: colors.text,
+							fontFamily: typography.fontFamily,
+							fontSize: typography.fontSize.sm,
+						}}
+					/>
+					{props.error ? (
+						<p css={{ margin: 0, color: colors.error, fontSize: typography.fontSize.sm }}>
+							{props.error}
+						</p>
+					) : null}
+					<div
+						id={listboxId}
+						role="listbox"
+						aria-multiselectable="true"
+						css={{
+							display: 'grid',
+							gap: spacing.xs,
+							maxHeight: '16rem',
+							overflowY: 'auto',
 						}}
 					>
-						<div css={{ display: 'grid', gap: spacing.xs }}>
-							<strong css={{ color: colors.text, fontSize: typography.fontSize.sm }}>
-								Included agents
-							</strong>
+						{props.isLoading ? (
 							<p
 								css={{
 									margin: 0,
 									color: colors.textMuted,
 									fontSize: typography.fontSize.sm,
-									lineHeight: 1.5,
 								}}
 							>
-								{selectedAgentSummary}
+								Loading agents...
 							</p>
-						</div>
-						<input
-							id={inputId}
-							type="search"
-							autocomplete="off"
-							value={search}
-							placeholder="Search agents"
-							aria-label="Search agents"
-							on={{
-								input: handleSearchInput,
-								keydown: handleSearchKeyDown,
-							}}
-							css={{
-								width: '100%',
-								padding: `${spacing.xs} ${spacing.sm}`,
-								borderRadius: radius.md,
-								border: `1px solid ${colors.border}`,
-								backgroundColor: colors.background,
-								color: colors.text,
-								fontFamily: typography.fontFamily,
-								fontSize: typography.fontSize.sm,
-							}}
-						/>
-						{props.error ? (
-							<p css={{ margin: 0, color: colors.error, fontSize: typography.fontSize.sm }}>
-								{props.error}
+						) : filteredAgents.length === 0 ? (
+							<p
+								css={{
+									margin: 0,
+									color: colors.textMuted,
+									fontSize: typography.fontSize.sm,
+								}}
+							>
+								No agents match your search.
 							</p>
-						) : null}
-						<div
-							id={listboxId}
-							role="listbox"
-							aria-multiselectable="true"
-							css={{
-								display: 'grid',
-								gap: spacing.xs,
-								maxHeight: '16rem',
-								overflowY: 'auto',
-							}}
-						>
-							{props.isLoading ? (
-								<p
-									css={{
-										margin: 0,
-										color: colors.textMuted,
-										fontSize: typography.fontSize.sm,
-									}}
-								>
-									Loading agents...
-								</p>
-							) : filteredAgents.length === 0 ? (
-								<p
-									css={{
-										margin: 0,
-										color: colors.textMuted,
-										fontSize: typography.fontSize.sm,
-									}}
-								>
-									No agents match your search.
-								</p>
-							) : (
-								filteredAgents.map((agent) => {
-									const isSelected = props.selectedAgentIds.includes(agent.id)
-									const isHighlighted = agent.id === resolvedHighlightedAgentId
-									return (
-										<button
-											key={agent.id}
-											type="button"
-											role="option"
-											aria-selected={isSelected}
-											on={{
-												click: () => commitToggle(agent.id),
-												mouseenter: () => {
-													highlightedAgentId = agent.id
-													update()
-												},
-											}}
+						) : (
+							filteredAgents.map((agent) => {
+								const isSelected = props.selectedAgentIds.includes(agent.id)
+								const isHighlighted = agent.id === resolvedHighlightedAgentId
+								return (
+									<button
+										key={agent.id}
+										type="button"
+										role="option"
+										aria-selected={isSelected}
+										on={{
+											click: () => commitToggle(agent.id),
+											mouseenter: () => {
+												highlightedAgentId = agent.id
+												update()
+											},
+										}}
+										css={{
+											display: 'grid',
+											gridTemplateColumns: 'auto 1fr',
+											gap: spacing.sm,
+											alignItems: 'start',
+											width: '100%',
+											padding: spacing.sm,
+											borderRadius: radius.md,
+											border: `1px solid ${
+												isHighlighted ? colors.primary : colors.border
+											}`,
+											backgroundColor: isHighlighted
+												? colors.primarySoftest
+												: colors.surface,
+											color: colors.text,
+											textAlign: 'left',
+											cursor: 'pointer',
+										}}
+									>
+										<span
+											aria-hidden="true"
 											css={{
-												display: 'grid',
-												gridTemplateColumns: 'auto 1fr',
-												gap: spacing.sm,
-												alignItems: 'start',
-												width: '100%',
-												padding: spacing.sm,
-												borderRadius: radius.md,
+												display: 'inline-flex',
+												alignItems: 'center',
+												justifyContent: 'center',
+												width: '1.25rem',
+												height: '1.25rem',
+												borderRadius: radius.sm,
 												border: `1px solid ${
-													isHighlighted ? colors.primary : colors.border
+													isSelected ? colors.primary : colors.border
 												}`,
-												backgroundColor: isHighlighted
-													? colors.primarySoftest
-													: colors.surface,
-												color: colors.text,
-												textAlign: 'left',
-												cursor: 'pointer',
+												backgroundColor: isSelected
+													? colors.primary
+													: colors.background,
+												color: isSelected
+													? colors.onPrimary
+													: colors.textMuted,
+												fontSize: typography.fontSize.xs,
+												fontWeight: typography.fontWeight.semibold,
 											}}
 										>
-											<span
-												aria-hidden="true"
-												css={{
-													display: 'inline-flex',
-													alignItems: 'center',
-													justifyContent: 'center',
-													width: '1.25rem',
-													height: '1.25rem',
-													borderRadius: radius.sm,
-													border: `1px solid ${
-														isSelected ? colors.primary : colors.border
-													}`,
-													backgroundColor: isSelected
-														? colors.primary
-														: colors.background,
-													color: isSelected
-														? colors.onPrimary
-														: colors.textMuted,
-													fontSize: typography.fontSize.xs,
-													fontWeight: typography.fontWeight.semibold,
-												}}
-											>
-												{isSelected ? '✓' : ''}
-											</span>
-											<span
-												css={{
-													display: 'grid',
-													gap: spacing.xs,
-													minWidth: 0,
-												}}
-											>
-												<span>{agent.name}</span>
-												{agent.isDefault ? (
-													<span
-														css={{
-															color: colors.textMuted,
-															fontSize: typography.fontSize.xs,
-														}}
-													>
-														Default agent
-													</span>
-												) : null}
-											</span>
-										</button>
-									)
-								})
-							)}
-						</div>
+											{isSelected ? '✓' : ''}
+										</span>
+										<span
+											css={{
+												display: 'grid',
+												gap: spacing.xs,
+												minWidth: 0,
+											}}
+										>
+											<span>{agent.name}</span>
+											{agent.isDefault ? (
+												<span
+													css={{
+														color: colors.textMuted,
+														fontSize: typography.fontSize.xs,
+													}}
+												>
+													Default agent
+												</span>
+											) : null}
+										</span>
+									</button>
+								)
+							})
+						)}
 					</div>
-				) : null}
+				</div>
 			</div>
 		)
 	}
