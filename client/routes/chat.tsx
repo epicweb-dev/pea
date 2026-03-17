@@ -1,4 +1,5 @@
 import { type Handle } from 'remix/component'
+import { AgentMultiSelectCombobox } from '#client/agent-multi-select-combobox.tsx'
 import { ChatClient, type ChatClientSnapshot } from '#client/chat-client.ts'
 import { navigate, routerEvents } from '#client/client-router.tsx'
 import { createDoubleCheck } from '#client/double-check.ts'
@@ -24,13 +25,17 @@ import {
 	typography,
 } from '#client/styles/tokens.ts'
 import {
+	type AvailableChatAgentListResponse,
 	type ChatThreadLookupResponse,
 	type ChatThreadListResponse,
 	type ChatThreadSummary,
+	type ChatThreadAgentsUpdateResponse,
 	type ChatThreadUpdateResponse,
+	type ManagedChatAgent,
 } from '#shared/chat.ts'
 
 type ThreadStatus = 'idle' | 'loading' | 'ready' | 'error'
+type AvailableAgentsStatus = 'loading' | 'ready' | 'error'
 
 function getSelectedThreadIdFromLocation() {
 	if (typeof window === 'undefined') return null
@@ -40,10 +45,19 @@ function getSelectedThreadIdFromLocation() {
 	return threadId || null
 }
 
-function getAgentIdFromLocation() {
+function getRequestedAgentIdsFromLocation() {
 	if (typeof window === 'undefined') return null
-	const agentId = new URL(window.location.href).searchParams.get('agentId')?.trim()
-	return agentId || null
+	const url = new URL(window.location.href)
+	const requestedAgentIds = [
+		...url.searchParams
+			.getAll('agentIds')
+			.flatMap((value) => value.split(','))
+			.map((value) => value.trim())
+			.filter(Boolean),
+		url.searchParams.get('agentId')?.trim() ?? '',
+	].filter(Boolean)
+	const uniqueAgentIds = new Set(requestedAgentIds)
+	return uniqueAgentIds.size > 0 ? [...uniqueAgentIds] : null
 }
 
 function buildThreadHref(threadId: string) {
@@ -61,6 +75,16 @@ function truncatePreview(text: string) {
 	const normalized = text.trim()
 	if (!normalized) return ''
 	return normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized
+}
+
+function normalizeSelectedAgentIds(agentIds?: ReadonlyArray<string> | null) {
+	const uniqueAgentIds = new Set<string>()
+	for (const agentId of agentIds ?? []) {
+		const normalizedAgentId = agentId.trim()
+		if (!normalizedAgentId) continue
+		uniqueAgentIds.add(normalizedAgentId)
+	}
+	return [...uniqueAgentIds]
 }
 
 function createInitialSnapshot(): ChatClientSnapshot {
@@ -95,6 +119,19 @@ function buildThreadPreviewFromMessages(
 		.join('\n')
 		.trim()
 	return text ? truncatePreview(text) : null
+}
+
+function getAssistantSpeakerName(message: ChatClientSnapshot['messages'][number]) {
+	if (message.role !== 'assistant') return 'You'
+	if (!message.metadata || typeof message.metadata !== 'object') {
+		return 'Assistant'
+	}
+	const agentName =
+		'agentName' in message.metadata &&
+		typeof message.metadata.agentName === 'string'
+			? message.metadata.agentName.trim()
+			: ''
+	return agentName || 'Assistant'
 }
 
 async function fetchThreads(input?: {
@@ -165,13 +202,13 @@ async function fetchThreadById(threadId: string, signal?: AbortSignal) {
 	return payload.thread
 }
 
-async function createThread(input?: { agentId?: string | null }) {
+async function createThread(input?: { agentIds?: Array<string> | null }) {
 	const response = await fetch('/chat-threads', {
 		method: 'POST',
 		credentials: 'include',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({
-			agentId: input?.agentId ?? null,
+			agentIds: input?.agentIds ?? [],
 		}),
 	})
 	const payload = (await response.json().catch(() => null)) as {
@@ -183,6 +220,22 @@ async function createThread(input?: { agentId?: string | null }) {
 		throw new Error(payload?.error || 'Unable to create thread.')
 	}
 	return payload.thread
+}
+
+async function fetchAvailableAgents(signal?: AbortSignal) {
+	const response = await fetch('/chat-agents', {
+		credentials: 'include',
+		headers: { Accept: 'application/json' },
+		signal,
+	})
+	const payload = (await response.json().catch(() => null)) as
+		| (AvailableChatAgentListResponse & { error?: string })
+		| { ok?: false; error?: string }
+		| null
+	if (!response.ok || !payload?.ok || !('agents' in payload)) {
+		throw new Error(payload?.error || 'Unable to load agents.')
+	}
+	return payload.agents
 }
 
 async function deleteThread(threadId: string) {
@@ -219,6 +272,28 @@ async function updateThreadTitle(threadId: string, title: string) {
 		!payload.thread
 	) {
 		throw new Error(payload?.error || 'Unable to update thread title.')
+	}
+	return payload.thread
+}
+
+async function updateThreadAgents(threadId: string, agentIds: Array<string>) {
+	const response = await fetch('/chat-threads/agents', {
+		method: 'POST',
+		credentials: 'include',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ threadId, agentIds }),
+	})
+	const payload = (await response.json().catch(() => null)) as
+		| (ChatThreadAgentsUpdateResponse & { error?: string })
+		| { ok?: false; error?: string }
+		| null
+	if (
+		!response.ok ||
+		!payload?.ok ||
+		!('thread' in payload) ||
+		!payload.thread
+	) {
+		throw new Error(payload?.error || 'Unable to update chat agents.')
 	}
 	return payload.thread
 }
@@ -363,6 +438,10 @@ export function ChatRoute(handle: Handle) {
 	let chatSnapshot = createInitialSnapshot()
 	let activeClient: ChatClient | null = null
 	let actionError: string | null = null
+	let availableAgents: Array<ManagedChatAgent> = []
+	let availableAgentsStatus: AvailableAgentsStatus = 'loading'
+	let availableAgentsError: string | null = null
+	let draftAgentIds = normalizeSelectedAgentIds(getRequestedAgentIdsFromLocation())
 	let syncInFlight = false
 	let shouldAutoScrollMessages = true
 	let showMessageScrollFadeTop = false
@@ -370,6 +449,7 @@ export function ChatRoute(handle: Handle) {
 	let showThreadListScrollFadeTop = false
 	let showThreadListScrollFadeBottom = false
 	const disconnectedIndicator = createSpinDelay(handle, { ssr: false })
+	const agentMultiSelectCombobox = AgentMultiSelectCombobox(handle)
 	const deleteThreadChecks = new Map<
 		string,
 		ReturnType<typeof createDoubleCheck>
@@ -420,6 +500,41 @@ export function ChatRoute(handle: Handle) {
 
 	function getThreads() {
 		return threadListSnapshot.items
+	}
+
+	function getActiveThreadSummary() {
+		if (!activeThreadId) return null
+		return getThreads().find((thread) => thread.id === activeThreadId) ?? null
+	}
+
+	function getSelectedAgentIds() {
+		return getActiveThreadSummary()?.agentIds ?? draftAgentIds
+	}
+
+	function syncDraftAgentIds() {
+		const selectedAgentIds = normalizeSelectedAgentIds(draftAgentIds)
+		const availableAgentIdSet = new Set(availableAgents.map((agent) => agent.id))
+		const nextDraftAgentIds = selectedAgentIds.filter((agentId) =>
+			availableAgentIdSet.has(agentId),
+		)
+		if (nextDraftAgentIds.length > 0) {
+			draftAgentIds = nextDraftAgentIds
+			return
+		}
+
+		const requestedAgentIds = normalizeSelectedAgentIds(
+			getRequestedAgentIdsFromLocation(),
+		).filter((agentId) => availableAgentIdSet.has(agentId))
+		if (requestedAgentIds.length > 0) {
+			draftAgentIds = requestedAgentIds
+			return
+		}
+
+		const defaultAgentId =
+			availableAgents.find((agent) => agent.isDefault)?.id ??
+			availableAgents[0]?.id ??
+			null
+		draftAgentIds = defaultAgentId ? [defaultAgentId] : []
 	}
 
 	function updateThreadListFromSnapshot(
@@ -658,9 +773,9 @@ export function ChatRoute(handle: Handle) {
 		syncInFlight = true
 		try {
 			const locationThreadId = getSelectedThreadIdFromLocation()
-			const requestedAgentId = getAgentIdFromLocation()
+			const requestedAgentIds = getRequestedAgentIdsFromLocation()
 			const threads = getThreads()
-			if (!locationThreadId && requestedAgentId) {
+			if (!locationThreadId && requestedAgentIds?.length) {
 				activeClient?.close()
 				activeClient = null
 				activeThreadId = null
@@ -767,6 +882,26 @@ export function ChatRoute(handle: Handle) {
 		}
 	}
 
+	async function loadAvailableAgents(signal?: AbortSignal) {
+		try {
+			const nextAvailableAgents = await fetchAvailableAgents(signal)
+			availableAgents = nextAvailableAgents
+			availableAgentsStatus = 'ready'
+			availableAgentsError = null
+			if (!getActiveThreadSummary()) {
+				syncDraftAgentIds()
+			}
+			update()
+		} catch (error) {
+			if (signal?.aborted) return
+			availableAgents = []
+			availableAgentsStatus = 'error'
+			availableAgentsError =
+				error instanceof Error ? error.message : 'Unable to load agents.'
+			update()
+		}
+	}
+
 	handle.on(routerEvents, {
 		navigate: () => {
 			void handle.queueTask(async () => {
@@ -775,9 +910,9 @@ export function ChatRoute(handle: Handle) {
 		},
 	})
 
-	async function createAndSelectThread() {
+	async function createAndSelectThread(input?: { agentIds?: Array<string> }) {
 		const thread = await createThread({
-			agentId: getAgentIdFromLocation(),
+			agentIds: input?.agentIds ?? getSelectedAgentIds(),
 		})
 		navigate(buildThreadHref(thread.id))
 		await refreshThreads()
@@ -789,7 +924,7 @@ export function ChatRoute(handle: Handle) {
 		actionError = null
 		update()
 		try {
-			await createAndSelectThread()
+			await createAndSelectThread({ agentIds: getSelectedAgentIds() })
 			await activeClient?.waitUntilConnected()
 		} catch (error) {
 			actionError =
@@ -849,6 +984,55 @@ export function ChatRoute(handle: Handle) {
 		}
 	}
 
+	async function handleAgentSelectionChange(nextAgentIds: Array<string>) {
+		const normalizedAgentIds = normalizeSelectedAgentIds(nextAgentIds)
+		const activeThread = getActiveThreadSummary()
+		if (!activeThread) {
+			draftAgentIds = normalizedAgentIds
+			update()
+			return
+		}
+
+		const previousAgentIds = activeThread.agentIds
+		updateThreadListFromSnapshot((threads) =>
+			threads.map((thread) =>
+				thread.id === activeThread.id
+					? {
+							...thread,
+							agentId: normalizedAgentIds[0] ?? null,
+							agentIds: normalizedAgentIds,
+					  }
+					: thread,
+			),
+		)
+		update()
+
+		try {
+			const updatedThread = await updateThreadAgents(activeThread.id, normalizedAgentIds)
+			updateThreadListFromSnapshot((threads) =>
+				threads.map((thread) =>
+					thread.id === updatedThread.id ? updatedThread : thread,
+				),
+			)
+			update()
+		} catch (error) {
+			updateThreadListFromSnapshot((threads) =>
+				threads.map((thread) =>
+					thread.id === activeThread.id
+						? {
+								...thread,
+								agentId: previousAgentIds[0] ?? null,
+								agentIds: previousAgentIds,
+						  }
+						: thread,
+				),
+			)
+			actionError =
+				error instanceof Error ? error.message : 'Unable to update chat agents.'
+			update()
+		}
+	}
+
 	async function handleSubmit(event: SubmitEvent) {
 		event.preventDefault()
 		actionError = null
@@ -862,7 +1046,7 @@ export function ChatRoute(handle: Handle) {
 			let client = activeClient
 
 			if (!client) {
-				await createAndSelectThread()
+				await createAndSelectThread({ agentIds: getSelectedAgentIds() })
 				client = activeClient
 			}
 
@@ -888,15 +1072,26 @@ export function ChatRoute(handle: Handle) {
 		if (threadStatus === 'loading') {
 			handle.queueTask(refreshThreads)
 		}
+		if (availableAgentsStatus === 'loading') {
+			handle.queueTask(loadAvailableAgents)
+		}
 
 		const threads = getThreads()
-		const activeThread = activeThreadId
-			? (threads.find((thread) => thread.id === activeThreadId) ?? null)
-			: null
+		const activeThread = getActiveThreadSummary()
+		const requestedAgentIds = getRequestedAgentIdsFromLocation()
 		const showEmptyStateComposer =
 			!activeThread &&
 			threadStatus !== 'error' &&
-			(threads.length === 0 || Boolean(getAgentIdFromLocation()))
+			(threads.length === 0 || Boolean(requestedAgentIds?.length))
+		const selectedAgentIds = getSelectedAgentIds()
+		const agentSelectionControl = agentMultiSelectCombobox({
+			id: activeThread ? `thread-agents-${activeThread.id}` : 'draft-thread-agents',
+			agents: availableAgents,
+			selectedAgentIds,
+			error: availableAgentsError,
+			isLoading: availableAgentsStatus === 'loading',
+			onSelectionChange: handleAgentSelectionChange,
+		})
 
 		return (
 			<section
@@ -1302,6 +1497,15 @@ export function ChatRoute(handle: Handle) {
 											/>
 										</h3>
 									</div>
+									<div
+										css={{
+											width: '18rem',
+											maxWidth: '100%',
+											flexShrink: 0,
+										}}
+									>
+										{agentSelectionControl}
+									</div>
 								</div>
 
 								<div
@@ -1368,7 +1572,7 @@ export function ChatRoute(handle: Handle) {
 												}}
 											>
 												<strong css={{ color: colors.text }}>
-													{message.role === 'user' ? 'You' : 'Assistant'}
+													{getAssistantSpeakerName(message)}
 												</strong>
 												<div css={{ display: 'grid', gap: spacing.sm }}>
 													{renderMessageParts(
@@ -1395,7 +1599,9 @@ export function ChatRoute(handle: Handle) {
 													backgroundColor: colors.surface,
 												}}
 											>
-												<strong css={{ color: colors.text }}>Assistant</strong>
+												<strong css={{ color: colors.text }}>
+													Selected agents
+												</strong>
 												<p
 													css={{
 														margin: 0,
@@ -1546,6 +1752,24 @@ export function ChatRoute(handle: Handle) {
 									paddingBottom: spacing.sm,
 								}}
 							>
+								<div
+									css={{
+										display: 'grid',
+										gap: spacing.sm,
+										marginBottom: spacing.md,
+									}}
+								>
+									<span
+										css={{
+											color: colors.text,
+											fontSize: typography.fontSize.sm,
+											fontWeight: typography.fontWeight.medium,
+										}}
+									>
+										Agents
+									</span>
+									{agentSelectionControl}
+								</div>
 								<form
 									on={{ submit: handleSubmit }}
 									css={{

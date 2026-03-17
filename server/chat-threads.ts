@@ -15,9 +15,35 @@ function buildThreadTitleFallback(threadId: string) {
 	return `Thread ${threadId.slice(0, 8)}`
 }
 
+function parseThreadAgentIds(record: {
+	agent_id?: string | null
+	agent_ids_json?: string | null
+}) {
+	const idsFromJson = (() => {
+		if (!record.agent_ids_json?.trim()) return []
+		try {
+			const parsed = JSON.parse(record.agent_ids_json) as Array<unknown>
+			if (!Array.isArray(parsed)) return []
+			return parsed
+				.filter((value): value is string => typeof value === 'string')
+				.map((value) => value.trim())
+				.filter(Boolean)
+		} catch {
+			return []
+		}
+	})()
+	const fallbackAgentId = record.agent_id?.trim() ?? ''
+	const uniqueIds = new Set(idsFromJson)
+	if (fallbackAgentId) {
+		uniqueIds.add(fallbackAgentId)
+	}
+	return [...uniqueIds]
+}
+
 function toThreadSummary(record: {
 	id: string
 	agent_id?: string | null
+	agent_ids_json?: string | null
 	title: string
 	last_message_preview: string
 	message_count: number
@@ -26,9 +52,11 @@ function toThreadSummary(record: {
 	deleted_at?: string | null
 }): ChatThreadSummary {
 	const title = record.title.trim()
+	const agentIds = parseThreadAgentIds(record)
 	return {
 		id: record.id,
-		agentId: record.agent_id ?? null,
+		agentId: agentIds[0] ?? record.agent_id ?? null,
+		agentIds,
 		title: title || buildThreadTitleFallback(record.id),
 		lastMessagePreview: normalizePreview(record.last_message_preview) || null,
 		messageCount: record.message_count,
@@ -68,9 +96,36 @@ function normalizeCursor(cursor: string | null | undefined) {
 	return parsedCursor
 }
 
+function normalizeRequestedAgentIds(agentIds?: ReadonlyArray<string> | null) {
+	const uniqueAgentIds = new Set<string>()
+	for (const agentId of agentIds ?? []) {
+		const normalizedAgentId = agentId.trim()
+		if (!normalizedAgentId) continue
+		uniqueAgentIds.add(normalizedAgentId)
+	}
+	return [...uniqueAgentIds]
+}
+
 export function createChatThreadsStore(db: D1Database) {
 	const database = createDb(db)
 	const agentsStore = createAgentsStore(db)
+
+	async function resolveThreadAgentIds(agentIds?: ReadonlyArray<string> | null) {
+		const requestedAgentIds = normalizeRequestedAgentIds(agentIds)
+		if (requestedAgentIds.length > 0) {
+			const availableAgents = await agentsStore.listAvailable()
+			const availableAgentIds = new Set(availableAgents.map((agent) => agent.id))
+			const matchingAgentIds = requestedAgentIds.filter((agentId) =>
+				availableAgentIds.has(agentId),
+			)
+			if (matchingAgentIds.length > 0) {
+				return matchingAgentIds
+			}
+		}
+
+		const fallbackAgent = await agentsStore.getDefault()
+		return [fallbackAgent?.id ?? defaultManagedChatAgentId]
+	}
 
 	return {
 		async listForUser(
@@ -118,6 +173,7 @@ export function createChatThreadsStore(db: D1Database) {
 						SELECT
 							id,
 							agent_id,
+							agent_ids_json,
 							title,
 							last_message_preview,
 							message_count,
@@ -138,6 +194,7 @@ export function createChatThreadsStore(db: D1Database) {
 						result.results as Array<{
 							id: string
 							agent_id?: string | null
+							agent_ids_json?: string | null
 							title: string
 							last_message_preview: string
 							message_count: number
@@ -156,14 +213,15 @@ export function createChatThreadsStore(db: D1Database) {
 				totalCount,
 			}
 		},
-		async createForUser(userId: number, agentId?: string | null) {
-			const fallbackAgent = await agentsStore.getDefault()
+		async createForUser(userId: number, agentIds?: ReadonlyArray<string> | null) {
+			const resolvedAgentIds = await resolveThreadAgentIds(agentIds)
 			const record = await database.create(
 				chatThreadsTable,
 				{
 					id: crypto.randomUUID(),
 					user_id: userId,
-					agent_id: agentId ?? fallbackAgent?.id ?? defaultManagedChatAgentId,
+					agent_id: resolvedAgentIds[0] ?? defaultManagedChatAgentId,
+					agent_ids_json: JSON.stringify(resolvedAgentIds),
 					title: buildInitialTitle(),
 					last_message_preview: '',
 					message_count: 0,
@@ -177,6 +235,28 @@ export function createChatThreadsStore(db: D1Database) {
 				where: { id: threadId, user_id: userId, deleted_at: null },
 			})
 			return record ? toThreadSummary(record) : null
+		},
+		async updateAgentsForUser(
+			userId: number,
+			threadId: string,
+			agentIds: ReadonlyArray<string>,
+		) {
+			const record = await database.findOne(chatThreadsTable, {
+				where: { id: threadId, user_id: userId, deleted_at: null },
+			})
+			if (!record) return null
+
+			const resolvedAgentIds = await resolveThreadAgentIds(agentIds)
+			const updated = await database.update(
+				chatThreadsTable,
+				threadId,
+				{
+					agent_id: resolvedAgentIds[0] ?? defaultManagedChatAgentId,
+					agent_ids_json: JSON.stringify(resolvedAgentIds),
+				},
+				{ touch: true },
+			)
+			return toThreadSummary(updated)
 		},
 		async renameForUser(userId: number, threadId: string, title: string) {
 			const record = await database.findOne(chatThreadsTable, {
