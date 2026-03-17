@@ -1,5 +1,7 @@
 import { AIChatAgent } from '@cloudflare/ai-chat'
 import {
+	createUIMessageStream,
+	createUIMessageStreamResponse,
 	type ToolSet,
 	type UIMessage,
 	type StreamTextOnFinishCallback,
@@ -162,7 +164,11 @@ function buildLastPreview(input: { userText: string; assistantText?: string }) {
 }
 
 function createEmptyResponse() {
-	return new Response(null, { status: 204 })
+	return createUIMessageStreamResponse({
+		stream: createUIMessageStream({
+			execute() {},
+		}),
+	})
 }
 
 function createErrorResponse(message: string) {
