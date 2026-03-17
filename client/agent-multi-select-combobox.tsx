@@ -246,18 +246,27 @@ export function AgentMultiSelectCombobox(handle: Handle) {
 					css={{
 						position: 'fixed',
 						positionAnchor: anchorName,
-						top: `calc(anchor(bottom) + ${spacing.xs})`,
-						left: 'anchor(left)',
+						inset: 'auto',
+						positionArea: 'block-end span-inline-start',
+						positionTryFallbacks:
+							'flip-block, flip-inline, flip-block flip-inline',
 						minWidth: 'anchor-size(width)',
 						maxWidth: 'min(24rem, calc(100vw - 2rem))',
+						maxHeight: 'calc(100dvh - 2rem)',
 						margin: 0,
-						display: 'grid',
 						gap: spacing.sm,
 						padding: spacing.md,
 						borderRadius: radius.lg,
 						border: `1px solid ${colors.border}`,
 						backgroundColor: colors.surface,
 						boxShadow: shadows.md,
+						overflow: 'auto',
+						'&:not(:popover-open)': {
+							display: 'none',
+						},
+						'&:popover-open': {
+							display: 'grid',
+						},
 					}}
 				>
 					<div css={{ display: 'grid', gap: spacing.xs }}>
