@@ -15,6 +15,7 @@ import {
 	restoreScrollAnchorAfterPrepend,
 	scrollToEdge,
 } from '#client/scroll-container.ts'
+import { fetchSessionInfo } from '#client/session.ts'
 import { createSpinDelay } from '#client/spin-delay.ts'
 import {
 	colors,
@@ -41,7 +42,8 @@ function getSelectedThreadIdFromLocation() {
 	if (typeof window === 'undefined') return null
 	const prefix = '/chat/'
 	if (!window.location.pathname.startsWith(prefix)) return null
-	const threadId = window.location.pathname.slice(prefix.length).trim()
+	const rest = window.location.pathname.slice(prefix.length).replace(/\/+$/, '')
+	const threadId = rest.split('/')[0]?.trim() ?? ''
 	return threadId || null
 }
 
@@ -69,7 +71,8 @@ const THREAD_LIST_SCROLL_CONTAINER_ID = 'chat-thread-list-scroll-container'
 const MESSAGES_SCROLL_THRESHOLD_PX = 96
 const THREAD_LIST_SCROLL_THRESHOLD_PX = 96
 const MESSAGE_SCROLL_FADE_HEIGHT = '2.5rem'
-const THREADS_PAGE_LIMIT = 40
+const THREADS_PAGE_LIMIT = 100
+const THREAD_LIST_PREFETCH_MAX_PAGES = 100
 
 function truncatePreview(text: string) {
 	const normalized = text.trim()
@@ -443,6 +446,11 @@ export function ChatRoute(handle: Handle) {
 	let availableAgentsError: string | null = null
 	let draftAgentIds = normalizeSelectedAgentIds(getRequestedAgentIdsFromLocation())
 	let syncInFlight = false
+	/** False until loadInitial succeeds at least once (avoids stuck empty after didLoad false). */
+	let threadsListHydrated = false
+	let chatDataBootstrapPromise: Promise<void> | null = null
+	let refreshThreadsController: AbortController | null = null
+	let loadMoreThreadsController: AbortController | null = null
 	let shouldAutoScrollMessages = true
 	let showMessageScrollFadeTop = false
 	let showMessageScrollFadeBottom = false
@@ -483,6 +491,40 @@ export function ChatRoute(handle: Handle) {
 
 	function update() {
 		handle.update()
+	}
+
+	function createAbortController() {
+		const controller = new AbortController()
+		if (handle.signal.aborted) {
+			controller.abort()
+		} else {
+			handle.signal.addEventListener('abort', () => controller.abort(), {
+				once: true,
+			})
+		}
+		return controller
+	}
+
+	function startRefreshThreads() {
+		refreshThreadsController?.abort()
+		const controller = createAbortController()
+		refreshThreadsController = controller
+		void refreshThreads(controller.signal).finally(() => {
+			if (refreshThreadsController === controller) {
+				refreshThreadsController = null
+			}
+		})
+	}
+
+	function startLoadMoreThreads() {
+		if (loadMoreThreadsController) return
+		const controller = createAbortController()
+		loadMoreThreadsController = controller
+		void loadMoreThreads(controller.signal).finally(() => {
+			if (loadMoreThreadsController === controller) {
+				loadMoreThreadsController = null
+			}
+		})
 	}
 
 	function setThreadState(
@@ -707,9 +749,7 @@ export function ChatRoute(handle: Handle) {
 				thresholdPx: THREAD_LIST_SCROLL_THRESHOLD_PX,
 			})
 		) {
-			void handle.queueTask(async (signal) => {
-				await loadMoreThreads(signal)
-			})
+			startLoadMoreThreads()
 		}
 	}
 
@@ -717,9 +757,7 @@ export function ChatRoute(handle: Handle) {
 		if (!(event.currentTarget instanceof HTMLInputElement)) return
 		threadSearch = event.currentTarget.value
 		update()
-		void handle.queueTask(async (signal) => {
-			await refreshThreads(signal)
-		})
+		startRefreshThreads()
 	}
 
 	function handleComposerKeyDown(event: KeyboardEvent) {
@@ -774,7 +812,6 @@ export function ChatRoute(handle: Handle) {
 		try {
 			const locationThreadId = getSelectedThreadIdFromLocation()
 			const requestedAgentIds = getRequestedAgentIdsFromLocation()
-			const threads = getThreads()
 			if (!locationThreadId && requestedAgentIds?.length) {
 				activeClient?.close()
 				activeClient = null
@@ -785,6 +822,25 @@ export function ChatRoute(handle: Handle) {
 				update()
 				return
 			}
+
+			// Resolve deep links before treating an empty list as "no chats": the list
+			// can be empty (search, first page timing) while the URL thread still exists.
+			if (
+				locationThreadId &&
+				!getThreads().some((thread) => thread.id === locationThreadId)
+			) {
+				try {
+					const selectedThread = await fetchThreadById(locationThreadId)
+					updateThreadListFromSnapshot((currentThreads) => [
+						selectedThread,
+						...currentThreads.filter((t) => t.id !== selectedThread.id),
+					])
+				} catch {
+					// Missing thread or error — fall through to empty state / first thread.
+				}
+			}
+
+			const threads = getThreads()
 			if (threads.length === 0) {
 				activeClient?.close()
 				activeClient = null
@@ -799,27 +855,12 @@ export function ChatRoute(handle: Handle) {
 				return
 			}
 
-			if (
-				locationThreadId &&
-				!threads.some((thread) => thread.id === locationThreadId)
-			) {
-				try {
-					const selectedThread = await fetchThreadById(locationThreadId)
-					updateThreadListFromSnapshot((currentThreads) => [
-						selectedThread,
-						...currentThreads,
-					])
-				} catch {
-					// Ignore missing selections and fall back to the first loaded thread.
-				}
-			}
-
 			const selectedThread =
 				locationThreadId &&
-				getThreads().find((thread) => thread.id === locationThreadId)
+				threads.some((thread) => thread.id === locationThreadId)
 					? locationThreadId
 					: null
-			const resolvedThreadId = selectedThread ?? getThreads()[0]?.id ?? null
+			const resolvedThreadId = selectedThread ?? threads[0]?.id ?? null
 			if (!resolvedThreadId) return
 
 			if (locationThreadId !== resolvedThreadId) {
@@ -855,6 +896,15 @@ export function ChatRoute(handle: Handle) {
 		return didLoad
 	}
 
+	async function prefetchRemainingThreadPages(signal?: AbortSignal) {
+		for (let i = 0; i < THREAD_LIST_PREFETCH_MAX_PAGES; i++) {
+			if (signal?.aborted) return
+			if (!threadList.getSnapshot().hasMore) return
+			const loaded = await loadMoreThreads(signal)
+			if (!loaded) return
+		}
+	}
+
 	async function refreshThreads(signal?: AbortSignal) {
 		try {
 			threadListCursor = null
@@ -868,17 +918,71 @@ export function ChatRoute(handle: Handle) {
 					totalCount: page.totalCount,
 				}
 			}, signal)
-			if (!didLoad) return
+			if (!didLoad) {
+				setThreadState('loading')
+				update()
+				return
+			}
+			threadsListHydrated = true
 			threadListCursor = nextCursor
 			setThreadState('ready')
 			scheduleThreadListScrollFadeSync()
 			await syncActiveThreadFromLocation()
+			await prefetchRemainingThreadPages(signal)
 		} catch (error) {
 			if (signal?.aborted) return
 			setThreadState(
 				'error',
 				error instanceof Error ? error.message : 'Unable to load threads.',
 			)
+		}
+	}
+
+	async function bootstrapChatData(signal?: AbortSignal) {
+		let session = await fetchSessionInfo(signal)
+		if (signal?.aborted) return
+		if (!session?.email) {
+			await new Promise((r) => setTimeout(r, 120))
+			if (signal?.aborted) return
+			session = await fetchSessionInfo(signal)
+		}
+		if (!session?.email) {
+			threadsListHydrated = true
+			setThreadState('ready')
+			availableAgentsStatus = 'ready'
+			availableAgents = []
+			availableAgentsError = null
+			update()
+			return
+		}
+
+		if (
+			!threadsListHydrated &&
+			(threadStatus === 'loading' ||
+				threadStatus === 'error' ||
+				(threadStatus === 'ready' && threadListSnapshot.items.length === 0))
+		) {
+			for (let attempt = 0; attempt < 12 && !threadsListHydrated; attempt++) {
+				if (signal?.aborted) return
+				if (attempt > 0) {
+					await new Promise((r) => setTimeout(r, Math.min(80 * attempt, 400)))
+				}
+				await refreshThreads(signal)
+			}
+			if (!threadsListHydrated && !signal?.aborted) {
+				setThreadState(
+					'error',
+					'Unable to load chats. Try refreshing the page.',
+				)
+				update()
+			}
+		}
+
+		if (
+			availableAgentsStatus === 'loading' ||
+			(availableAgentsStatus === 'error' && availableAgents.length === 0)
+		) {
+			await loadAvailableAgents(signal)
 		}
 	}
 
@@ -904,11 +1008,16 @@ export function ChatRoute(handle: Handle) {
 
 	handle.on(routerEvents, {
 		navigate: () => {
-			void handle.queueTask(async () => {
-				await syncActiveThreadFromLocation()
-			})
+			void syncActiveThreadFromLocation()
 		},
 	})
+
+	function ensureChatDataBootstrap() {
+		if (chatDataBootstrapPromise) return
+		chatDataBootstrapPromise = bootstrapChatData(handle.signal).finally(() => {
+			chatDataBootstrapPromise = null
+		})
+	}
 
 	async function createAndSelectThread(input?: { agentIds?: Array<string> }) {
 		const thread = await createThread({
@@ -1068,13 +1177,9 @@ export function ChatRoute(handle: Handle) {
 		}
 	}
 
+	ensureChatDataBootstrap()
+
 	return () => {
-		if (threadStatus === 'loading') {
-			handle.queueTask(refreshThreads)
-		}
-		if (availableAgentsStatus === 'loading') {
-			handle.queueTask(loadAvailableAgents)
-		}
 
 		const threads = getThreads()
 		const activeThread = getActiveThreadSummary()
