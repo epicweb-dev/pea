@@ -1430,7 +1430,7 @@ export function ChatRoute(handle: Handle) {
 							backgroundColor: colors.surface,
 							boxShadow: shadows.sm,
 							height: CHAT_PANEL_HEIGHT,
-							overflow: 'hidden',
+							overflow: 'visible',
 						}}
 					>
 						{activeThread ? (
