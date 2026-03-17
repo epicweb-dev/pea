@@ -136,8 +136,8 @@ test('supports selecting multiple agents before and during a chat', async ({
 
 	await expect(page).toHaveURL(/\/chat\/.+/)
 	const messages = page.locator('#chat-messages-scroll-container')
-	await expect(messages.getByText('alpha agent', { exact: true })).toHaveCount(1)
-	await expect(messages.getByText('beta agent', { exact: true })).toHaveCount(1)
+	await expect(messages.getByText('alpha agent', { exact: false })).toHaveCount(1)
+	await expect(messages.getByText('beta agent', { exact: false })).toHaveCount(1)
 
 	const threadAgentButton = page.getByRole('button', {
 		name: '2 agents in this chat',
@@ -156,6 +156,6 @@ test('supports selecting multiple agents before and during a chat', async ({
 	await page.getByRole('textbox', { name: 'Message' }).fill('hello again')
 	await page.getByRole('button', { name: 'Send message' }).click()
 
-	await expect(messages.getByText('alpha agent', { exact: true })).toHaveCount(1)
-	await expect(messages.getByText('beta agent', { exact: true })).toHaveCount(2)
+	await expect(messages.getByText('alpha agent', { exact: false })).toHaveCount(1)
+	await expect(messages.getByText('beta agent', { exact: false })).toHaveCount(2)
 })

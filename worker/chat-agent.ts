@@ -171,6 +171,41 @@ function createEmptyResponse() {
 	})
 }
 
+function createAssistantTextResponse(text: string) {
+	return createUIMessageStreamResponse({
+		stream: createUIMessageStream<UIMessage<ChatAssistantMessageMetadata>>({
+			execute({ writer }) {
+				const textPartId = crypto.randomUUID()
+				const metadata = {
+					agentId: null,
+					agentName: 'Selected agents',
+				} satisfies ChatAssistantMessageMetadata
+				writer.write({
+					type: 'start',
+					messageMetadata: metadata,
+				})
+				writer.write({
+					type: 'text-start',
+					id: textPartId,
+				})
+				writer.write({
+					type: 'text-delta',
+					id: textPartId,
+					delta: text,
+				})
+				writer.write({
+					type: 'text-end',
+					id: textPartId,
+				})
+				writer.write({
+					type: 'finish',
+					messageMetadata: metadata,
+				})
+			},
+		}),
+	})
+}
+
 function createErrorResponse(message: string) {
 	return new Response(message, {
 		status: 500,
@@ -325,6 +360,20 @@ function normalizeAgentMatchValue(value: string) {
 	return value
 		.toLowerCase()
 		.replace(/[^a-z0-9]+/g, ' ')
+		.trim()
+}
+
+function buildCombinedAssistantText(
+	messages: Array<UIMessage<ChatAssistantMessageMetadata>>,
+) {
+	return messages
+		.map((message) => {
+			const metadata = getAssistantMessageMetadata(message)
+			const agentName = metadata?.agentName ?? 'Assistant'
+			const text = getTextParts(message).join('\n').trim()
+			return text ? `${agentName}:\n${text}` : agentName
+		})
+		.join('\n\n')
 		.trim()
 }
 
@@ -654,16 +703,15 @@ export class ChatAgent extends AIChatAgent<Env> {
 			assistantMessages.push(buildAssistantMessage(agent, assistantText))
 		}
 
-		if (assistantMessages.length > 0) {
-			await this.saveMessages([...this.messages, ...assistantMessages])
-		}
+		const combinedAssistantText = buildCombinedAssistantText(assistantMessages)
 		await this.syncThreadMetadata({
 			assistantText: assistantMessages.at(-1)
 				? getTextParts(assistantMessages.at(-1)!).join('\n').trim()
 				: undefined,
+			messageCountOffset: combinedAssistantText ? 1 : 0,
 		})
-		if (assistantMessages.length > 0) {
-			return createEmptyResponse()
+		if (combinedAssistantText) {
+			return createAssistantTextResponse(combinedAssistantText)
 		}
 		if (generationErrors.length > 0) {
 			return createErrorResponse(generationErrors[0] ?? 'Chat generation failed.')
