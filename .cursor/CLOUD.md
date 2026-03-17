@@ -17,7 +17,7 @@ A full-stack web application starter built on Cloudflare Workers with Remix 3
 
 ## Services
 
-- **Dev server**: Runs at `localhost:8787` (Cloudflare Workers local)
+- **Dev server**: Runs at `localhost:3742` (Cloudflare Workers local)
 - `bun run dev` starts both the client esbuild watcher and Wrangler worker
   server
 

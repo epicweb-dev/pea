@@ -26,3 +26,22 @@ This file is intentionally brief. Detailed instructions live in focused docs:
   - [docs/architecture/request-lifecycle.md](./docs/architecture/request-lifecycle.md)
   - [docs/architecture/authentication.md](./docs/architecture/authentication.md)
   - [docs/architecture/data-storage.md](./docs/architecture/data-storage.md)
+
+## Cursor Cloud specific instructions
+
+See [.cursor/CLOUD.md](./.cursor/CLOUD.md) for the full quick-reference table.
+
+### Non-obvious gotchas
+
+- **Dev server port is 3742**, not 8787. The CLI (`cli.ts`) defaults to port
+  3742 and auto-finds a free port in the range 3742-3751.
+- **`.env` must exist** before running `bun run dev`. Copy `.env.example` to
+  `.env` and ensure `COOKIE_SECRET` is at least 32 characters (generate with
+  `openssl rand -hex 32`).
+- **Mock servers auto-start**: `bun run dev` automatically starts mock Resend
+  (email) and mock AI workers. No external services or Docker needed.
+- **Seed test account** before testing login flows:
+  `bun run migrate:local && bun tools/seed-test-data.ts --local`
+  (email: `kody@kcd.dev`, password: `kodylovesyou`).
+- **No git hooks or pre-commit** checks are configured. Run `bun run validate`
+  manually before pushing.
