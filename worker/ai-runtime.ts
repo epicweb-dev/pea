@@ -1,7 +1,6 @@
 import {
 	convertToModelMessages,
-	streamText,
-	type StreamTextOnFinishCallback,
+	generateText,
 	type ToolSet,
 	type UIMessage,
 } from 'ai'
@@ -17,15 +16,12 @@ export type StreamChatReplyInput = {
 	tools: ToolSet
 	toolNames: Array<string>
 	abortSignal?: AbortSignal
-	onFinish?: StreamTextOnFinishCallback<ToolSet>
 }
 
-export type AiRuntimeResult =
-	| { kind: 'response'; response: Response }
-	| MockAiResponse
+export type AiRuntimeResult = MockAiResponse
 
 export type AiRuntime = {
-	streamChatReply(input: StreamChatReplyInput): Promise<AiRuntimeResult>
+	generateChatReply(input: StreamChatReplyInput): Promise<AiRuntimeResult>
 }
 
 type AIEnabledEnv = Env & {
@@ -81,22 +77,29 @@ function createWorkersAiProvider(env: WorkersAiCredentialsEnv) {
 
 function createRemoteAiRuntime(env: WorkersAiCredentialsEnv): AiRuntime {
 	return {
-		async streamChatReply(input) {
-			const workersai = createWorkersAiProvider(env)
-			const model = input.model?.trim() || env.AI_MODEL || fallbackRemoteChatModel
-
-			const result = streamText({
-				model: workersai(model),
-				system: input.system,
-				messages: await convertToModelMessages(input.messages),
-				tools: input.tools,
-				abortSignal: input.abortSignal,
-				onFinish: input.onFinish,
-			})
-
-			return {
-				kind: 'response',
-				response: result.toUIMessageStreamResponse(),
+		async generateChatReply(input) {
+			try {
+				const workersai = createWorkersAiProvider(env)
+				const model = input.model?.trim() || env.AI_MODEL || fallbackRemoteChatModel
+				const result = await generateText({
+					model: workersai(model),
+					system: input.system,
+					messages: await convertToModelMessages(input.messages),
+					tools: input.tools,
+					abortSignal: input.abortSignal,
+				})
+				return {
+					kind: 'text',
+					text: result.text,
+				}
+			} catch (error) {
+				return {
+					kind: 'error',
+					message:
+						error instanceof Error
+							? error.message
+							: 'Remote AI generation failed.',
+				}
 			}
 		},
 	}
@@ -106,7 +109,7 @@ function createMockAiRuntime(env: Env): AiRuntime {
 	const baseUrl = env.AI_MOCK_BASE_URL?.trim()
 
 	return {
-		async streamChatReply(input) {
+		async generateChatReply(input) {
 			if (!baseUrl) {
 				const userMessages = input.messages.filter(
 					(message) => message.role === 'user',

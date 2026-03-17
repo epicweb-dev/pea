@@ -13,6 +13,16 @@ Quick notes for getting a local pea environment running.
 
 ## Local development
 
+### App URL and ports
+
+- **`bun run dev`** serves the full app at **`http://localhost:3742`** — use this
+  for manual testing (chat, auth, etc.).
+- **Port 8788** is used by **Playwright** (`preview:e2e`) so tests don’t clash
+  with your dev server, and by **standalone mock workers** if you run Wrangler
+  on them directly. It is **not** the same origin as normal `bun run dev`.
+
+### Commands
+
 - Copy `.env.example` to `.env` before starting any work, then update secrets as
   needed.
 - `bun run dev` (starts mock API servers automatically and sets

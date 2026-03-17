@@ -42,8 +42,8 @@ Start the local development environment:
 bun run dev
 ```
 
-This starts the app and local mock services used by the current development
-workflow.
+Open **`http://localhost:3742`** — that is the main app. (Playwright uses a
+separate port, often 8788, for isolated e2e runs; see `docs/agents/setup.md`.)
 
 ## Deploy
 

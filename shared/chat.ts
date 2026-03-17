@@ -144,6 +144,7 @@ export const chatThreadRecordSchema = object({
 	id: string(),
 	user_id: number(),
 	agent_id: optional(nullable(string())),
+	agent_ids_json: optional(string()),
 	title: string(),
 	last_message_preview: string(),
 	message_count: number(),
@@ -157,6 +158,7 @@ export type ChatThreadRecord = InferOutput<typeof chatThreadRecordSchema>
 export type ChatThreadSummary = {
 	id: string
 	agentId: string | null
+	agentIds: Array<string>
 	title: string
 	lastMessagePreview: string | null
 	messageCount: number
@@ -184,6 +186,11 @@ export type ChatThreadCreateResponse = {
 }
 
 export type ChatThreadUpdateResponse = {
+	ok: true
+	thread: ChatThreadSummary
+}
+
+export type ChatThreadAgentsUpdateResponse = {
 	ok: true
 	thread: ChatThreadSummary
 }
@@ -224,7 +231,17 @@ export type ManagedChatAgentListResponse = {
 	environmentDefaultModel: string
 }
 
+export type AvailableChatAgentListResponse = {
+	ok: true
+	agents: Array<ManagedChatAgent>
+}
+
 export type ManagedChatAgentMutationResponse = {
 	ok: true
 	agent: ManagedChatAgent
+}
+
+export type ChatAssistantMessageMetadata = {
+	agentId: string | null
+	agentName: string | null
 }

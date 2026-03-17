@@ -1,4 +1,5 @@
 import { type Handle } from 'remix/component'
+import { AgentMultiSelectCombobox } from '#client/agent-multi-select-combobox.tsx'
 import { ChatClient, type ChatClientSnapshot } from '#client/chat-client.ts'
 import { navigate, routerEvents } from '#client/client-router.tsx'
 import { createDoubleCheck } from '#client/double-check.ts'
@@ -14,9 +15,12 @@ import {
 	restoreScrollAnchorAfterPrepend,
 	scrollToEdge,
 } from '#client/scroll-container.ts'
+import { fetchSessionInfo } from '#client/session.ts'
 import { createSpinDelay } from '#client/spin-delay.ts'
 import {
+	breakpoints,
 	colors,
+	mq,
 	radius,
 	shadows,
 	spacing,
@@ -24,26 +28,40 @@ import {
 	typography,
 } from '#client/styles/tokens.ts'
 import {
+	type AvailableChatAgentListResponse,
 	type ChatThreadLookupResponse,
 	type ChatThreadListResponse,
 	type ChatThreadSummary,
+	type ChatThreadAgentsUpdateResponse,
 	type ChatThreadUpdateResponse,
+	type ManagedChatAgent,
 } from '#shared/chat.ts'
 
 type ThreadStatus = 'idle' | 'loading' | 'ready' | 'error'
+type AvailableAgentsStatus = 'loading' | 'ready' | 'error'
 
 function getSelectedThreadIdFromLocation() {
 	if (typeof window === 'undefined') return null
 	const prefix = '/chat/'
 	if (!window.location.pathname.startsWith(prefix)) return null
-	const threadId = window.location.pathname.slice(prefix.length).trim()
+	const rest = window.location.pathname.slice(prefix.length).replace(/\/+$/, '')
+	const threadId = rest.split('/')[0]?.trim() ?? ''
 	return threadId || null
 }
 
-function getAgentIdFromLocation() {
+function getRequestedAgentIdsFromLocation() {
 	if (typeof window === 'undefined') return null
-	const agentId = new URL(window.location.href).searchParams.get('agentId')?.trim()
-	return agentId || null
+	const url = new URL(window.location.href)
+	const requestedAgentIds = [
+		...url.searchParams
+			.getAll('agentIds')
+			.flatMap((value) => value.split(','))
+			.map((value) => value.trim())
+			.filter(Boolean),
+		url.searchParams.get('agentId')?.trim() ?? '',
+	].filter(Boolean)
+	const uniqueAgentIds = new Set(requestedAgentIds)
+	return uniqueAgentIds.size > 0 ? [...uniqueAgentIds] : null
 }
 
 function buildThreadHref(threadId: string) {
@@ -55,12 +73,23 @@ const THREAD_LIST_SCROLL_CONTAINER_ID = 'chat-thread-list-scroll-container'
 const MESSAGES_SCROLL_THRESHOLD_PX = 96
 const THREAD_LIST_SCROLL_THRESHOLD_PX = 96
 const MESSAGE_SCROLL_FADE_HEIGHT = '2.5rem'
-const THREADS_PAGE_LIMIT = 40
+const THREADS_PAGE_LIMIT = 100
+const THREAD_LIST_PREFETCH_MAX_PAGES = 100
 
 function truncatePreview(text: string) {
 	const normalized = text.trim()
 	if (!normalized) return ''
 	return normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized
+}
+
+function normalizeSelectedAgentIds(agentIds?: ReadonlyArray<string> | null) {
+	const uniqueAgentIds = new Set<string>()
+	for (const agentId of agentIds ?? []) {
+		const normalizedAgentId = agentId.trim()
+		if (!normalizedAgentId) continue
+		uniqueAgentIds.add(normalizedAgentId)
+	}
+	return [...uniqueAgentIds]
 }
 
 function createInitialSnapshot(): ChatClientSnapshot {
@@ -95,6 +124,21 @@ function buildThreadPreviewFromMessages(
 		.join('\n')
 		.trim()
 	return text ? truncatePreview(text) : null
+}
+
+function getAssistantSpeakerName(
+	message: ChatClientSnapshot['messages'][number],
+) {
+	if (message.role !== 'assistant') return 'You'
+	if (!message.metadata || typeof message.metadata !== 'object') {
+		return 'Assistant'
+	}
+	const agentName =
+		'agentName' in message.metadata &&
+		typeof message.metadata.agentName === 'string'
+			? message.metadata.agentName.trim()
+			: ''
+	return agentName || 'Assistant'
 }
 
 async function fetchThreads(input?: {
@@ -165,13 +209,13 @@ async function fetchThreadById(threadId: string, signal?: AbortSignal) {
 	return payload.thread
 }
 
-async function createThread(input?: { agentId?: string | null }) {
+async function createThread(input?: { agentIds?: Array<string> | null }) {
 	const response = await fetch('/chat-threads', {
 		method: 'POST',
 		credentials: 'include',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({
-			agentId: input?.agentId ?? null,
+			agentIds: input?.agentIds ?? [],
 		}),
 	})
 	const payload = (await response.json().catch(() => null)) as {
@@ -183,6 +227,22 @@ async function createThread(input?: { agentId?: string | null }) {
 		throw new Error(payload?.error || 'Unable to create thread.')
 	}
 	return payload.thread
+}
+
+async function fetchAvailableAgents(signal?: AbortSignal) {
+	const response = await fetch('/chat-agents', {
+		credentials: 'include',
+		headers: { Accept: 'application/json' },
+		signal,
+	})
+	const payload = (await response.json().catch(() => null)) as
+		| (AvailableChatAgentListResponse & { error?: string })
+		| { ok?: false; error?: string }
+		| null
+	if (!response.ok || !payload?.ok || !('agents' in payload)) {
+		throw new Error(payload?.error || 'Unable to load agents.')
+	}
+	return payload.agents
 }
 
 async function deleteThread(threadId: string) {
@@ -219,6 +279,28 @@ async function updateThreadTitle(threadId: string, title: string) {
 		!payload.thread
 	) {
 		throw new Error(payload?.error || 'Unable to update thread title.')
+	}
+	return payload.thread
+}
+
+async function updateThreadAgents(threadId: string, agentIds: Array<string>) {
+	const response = await fetch('/chat-threads/agents', {
+		method: 'POST',
+		credentials: 'include',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ threadId, agentIds }),
+	})
+	const payload = (await response.json().catch(() => null)) as
+		| (ChatThreadAgentsUpdateResponse & { error?: string })
+		| { ok?: false; error?: string }
+		| null
+	if (
+		!response.ok ||
+		!payload?.ok ||
+		!('thread' in payload) ||
+		!payload.thread
+	) {
+		throw new Error(payload?.error || 'Unable to update chat agents.')
 	}
 	return payload.thread
 }
@@ -332,7 +414,10 @@ const INPUT_MIN_HEIGHT = `${INPUT_MIN_HEIGHT_REM}rem`
 const INPUT_RIGHT_PADDING = `${SEND_BUTTON_SIZE_REM + SEND_BUTTON_INSET_REM * 2}rem`
 const SEND_BUTTON_SIZE = `${SEND_BUTTON_SIZE_REM}rem`
 const SEND_BUTTON_INSET = `${SEND_BUTTON_INSET_REM}rem`
-const CHAT_PANEL_HEIGHT = 'calc(100vh - 7rem)'
+const CHAT_PANEL_HEIGHT = 'calc(100dvh - 7rem)'
+const MOBILE_CHAT_PANEL_HEIGHT = 'calc(100dvh - 9rem)'
+const MOBILE_LAYOUT_MEDIA_QUERY = `(max-width: ${breakpoints.mobile})`
+const CHAT_HEADER_STACK_MEDIA_QUERY = '@media (max-width: 900px)'
 /**
  * The outer border should follow the button's contour plus its inset from the edge.
  * radius = button radius + inset
@@ -363,13 +448,29 @@ export function ChatRoute(handle: Handle) {
 	let chatSnapshot = createInitialSnapshot()
 	let activeClient: ChatClient | null = null
 	let actionError: string | null = null
+	let availableAgents: Array<ManagedChatAgent> = []
+	let availableAgentsStatus: AvailableAgentsStatus = 'loading'
+	let availableAgentsError: string | null = null
+	let draftAgentIds = normalizeSelectedAgentIds(
+		getRequestedAgentIdsFromLocation(),
+	)
 	let syncInFlight = false
+	/** False until loadInitial succeeds at least once (avoids stuck empty after didLoad false). */
+	let threadsListHydrated = false
+	let chatDataBootstrapPromise: Promise<void> | null = null
+	let refreshThreadsController: AbortController | null = null
+	let loadMoreThreadsController: AbortController | null = null
 	let shouldAutoScrollMessages = true
 	let showMessageScrollFadeTop = false
 	let showMessageScrollFadeBottom = false
 	let showThreadListScrollFadeTop = false
 	let showThreadListScrollFadeBottom = false
+	let isMobileViewport =
+		typeof window !== 'undefined'
+			? window.matchMedia(MOBILE_LAYOUT_MEDIA_QUERY).matches
+			: false
 	const disconnectedIndicator = createSpinDelay(handle, { ssr: false })
+	const agentMultiSelectCombobox = AgentMultiSelectCombobox(handle)
 	const deleteThreadChecks = new Map<
 		string,
 		ReturnType<typeof createDoubleCheck>
@@ -405,6 +506,40 @@ export function ChatRoute(handle: Handle) {
 		handle.update()
 	}
 
+	function createAbortController() {
+		const controller = new AbortController()
+		if (handle.signal.aborted) {
+			controller.abort()
+		} else {
+			handle.signal.addEventListener('abort', () => controller.abort(), {
+				once: true,
+			})
+		}
+		return controller
+	}
+
+	function startRefreshThreads() {
+		refreshThreadsController?.abort()
+		const controller = createAbortController()
+		refreshThreadsController = controller
+		void refreshThreads(controller.signal).finally(() => {
+			if (refreshThreadsController === controller) {
+				refreshThreadsController = null
+			}
+		})
+	}
+
+	function startLoadMoreThreads() {
+		if (loadMoreThreadsController) return
+		const controller = createAbortController()
+		loadMoreThreadsController = controller
+		void loadMoreThreads(controller.signal).finally(() => {
+			if (loadMoreThreadsController === controller) {
+				loadMoreThreadsController = null
+			}
+		})
+	}
+
 	function setThreadState(
 		nextStatus: ThreadStatus,
 		nextError: string | null = null,
@@ -420,6 +555,43 @@ export function ChatRoute(handle: Handle) {
 
 	function getThreads() {
 		return threadListSnapshot.items
+	}
+
+	function getActiveThreadSummary() {
+		if (!activeThreadId) return null
+		return getThreads().find((thread) => thread.id === activeThreadId) ?? null
+	}
+
+	function getSelectedAgentIds() {
+		return getActiveThreadSummary()?.agentIds ?? draftAgentIds
+	}
+
+	function syncDraftAgentIds() {
+		const selectedAgentIds = normalizeSelectedAgentIds(draftAgentIds)
+		const availableAgentIdSet = new Set(
+			availableAgents.map((agent) => agent.id),
+		)
+		const nextDraftAgentIds = selectedAgentIds.filter((agentId) =>
+			availableAgentIdSet.has(agentId),
+		)
+		if (nextDraftAgentIds.length > 0) {
+			draftAgentIds = nextDraftAgentIds
+			return
+		}
+
+		const requestedAgentIds = normalizeSelectedAgentIds(
+			getRequestedAgentIdsFromLocation(),
+		).filter((agentId) => availableAgentIdSet.has(agentId))
+		if (requestedAgentIds.length > 0) {
+			draftAgentIds = requestedAgentIds
+			return
+		}
+
+		const defaultAgentId =
+			availableAgents.find((agent) => agent.isDefault)?.id ??
+			availableAgents[0]?.id ??
+			null
+		draftAgentIds = defaultAgentId ? [defaultAgentId] : []
 	}
 
 	function updateThreadListFromSnapshot(
@@ -526,6 +698,15 @@ export function ChatRoute(handle: Handle) {
 		})
 	}
 
+	function syncMobileViewportState(matches: boolean) {
+		const viewportChanged = isMobileViewport !== matches
+		isMobileViewport = matches
+		if (viewportChanged) {
+			update()
+			void syncActiveThreadFromLocation()
+		}
+	}
+
 	function scheduleScrollToBottom(force = false) {
 		void handle.queueTask(async () => {
 			const container = document.getElementById(MESSAGES_SCROLL_CONTAINER_ID)
@@ -592,9 +773,7 @@ export function ChatRoute(handle: Handle) {
 				thresholdPx: THREAD_LIST_SCROLL_THRESHOLD_PX,
 			})
 		) {
-			void handle.queueTask(async (signal) => {
-				await loadMoreThreads(signal)
-			})
+			startLoadMoreThreads()
 		}
 	}
 
@@ -602,9 +781,7 @@ export function ChatRoute(handle: Handle) {
 		if (!(event.currentTarget instanceof HTMLInputElement)) return
 		threadSearch = event.currentTarget.value
 		update()
-		void handle.queueTask(async (signal) => {
-			await refreshThreads(signal)
-		})
+		startRefreshThreads()
 	}
 
 	function handleComposerKeyDown(event: KeyboardEvent) {
@@ -658,9 +835,8 @@ export function ChatRoute(handle: Handle) {
 		syncInFlight = true
 		try {
 			const locationThreadId = getSelectedThreadIdFromLocation()
-			const requestedAgentId = getAgentIdFromLocation()
-			const threads = getThreads()
-			if (!locationThreadId && requestedAgentId) {
+			const requestedAgentIds = getRequestedAgentIdsFromLocation()
+			if (!locationThreadId && requestedAgentIds?.length) {
 				activeClient?.close()
 				activeClient = null
 				activeThreadId = null
@@ -670,6 +846,25 @@ export function ChatRoute(handle: Handle) {
 				update()
 				return
 			}
+
+			// Resolve deep links before treating an empty list as "no chats": the list
+			// can be empty (search, first page timing) while the URL thread still exists.
+			if (
+				locationThreadId &&
+				!getThreads().some((thread) => thread.id === locationThreadId)
+			) {
+				try {
+					const selectedThread = await fetchThreadById(locationThreadId)
+					updateThreadListFromSnapshot((currentThreads) => [
+						selectedThread,
+						...currentThreads.filter((t) => t.id !== selectedThread.id),
+					])
+				} catch {
+					// Missing thread or error — fall through to empty state / first thread.
+				}
+			}
+
+			const threads = getThreads()
 			if (threads.length === 0) {
 				activeClient?.close()
 				activeClient = null
@@ -684,27 +879,22 @@ export function ChatRoute(handle: Handle) {
 				return
 			}
 
-			if (
-				locationThreadId &&
-				!threads.some((thread) => thread.id === locationThreadId)
-			) {
-				try {
-					const selectedThread = await fetchThreadById(locationThreadId)
-					updateThreadListFromSnapshot((currentThreads) => [
-						selectedThread,
-						...currentThreads,
-					])
-				} catch {
-					// Ignore missing selections and fall back to the first loaded thread.
-				}
-			}
-
 			const selectedThread =
 				locationThreadId &&
-				getThreads().find((thread) => thread.id === locationThreadId)
+				threads.some((thread) => thread.id === locationThreadId)
 					? locationThreadId
 					: null
-			const resolvedThreadId = selectedThread ?? getThreads()[0]?.id ?? null
+			if (isMobileViewport && !selectedThread) {
+				activeClient?.close()
+				activeClient = null
+				activeThreadId = null
+				resetChatSnapshot()
+				disconnectedIndicator.reset()
+				setMessageScrollFades(false, false)
+				update()
+				return
+			}
+			const resolvedThreadId = selectedThread ?? threads[0]?.id ?? null
 			if (!resolvedThreadId) return
 
 			if (locationThreadId !== resolvedThreadId) {
@@ -740,6 +930,15 @@ export function ChatRoute(handle: Handle) {
 		return didLoad
 	}
 
+	async function prefetchRemainingThreadPages(signal?: AbortSignal) {
+		for (let i = 0; i < THREAD_LIST_PREFETCH_MAX_PAGES; i++) {
+			if (signal?.aborted) return
+			if (!threadList.getSnapshot().hasMore) return
+			const loaded = await loadMoreThreads(signal)
+			if (!loaded) return
+		}
+	}
+
 	async function refreshThreads(signal?: AbortSignal) {
 		try {
 			threadListCursor = null
@@ -753,11 +952,17 @@ export function ChatRoute(handle: Handle) {
 					totalCount: page.totalCount,
 				}
 			}, signal)
-			if (!didLoad) return
+			if (!didLoad) {
+				setThreadState('loading')
+				update()
+				return
+			}
+			threadsListHydrated = true
 			threadListCursor = nextCursor
 			setThreadState('ready')
 			scheduleThreadListScrollFadeSync()
 			await syncActiveThreadFromLocation()
+			await prefetchRemainingThreadPages(signal)
 		} catch (error) {
 			if (signal?.aborted) return
 			setThreadState(
@@ -767,17 +972,107 @@ export function ChatRoute(handle: Handle) {
 		}
 	}
 
+	async function bootstrapChatData(signal?: AbortSignal) {
+		let session = await fetchSessionInfo(signal)
+		if (signal?.aborted) return
+		if (!session?.email) {
+			await new Promise((r) => setTimeout(r, 120))
+			if (signal?.aborted) return
+			session = await fetchSessionInfo(signal)
+		}
+		if (!session?.email) {
+			threadsListHydrated = true
+			setThreadState('ready')
+			availableAgentsStatus = 'ready'
+			availableAgents = []
+			availableAgentsError = null
+			update()
+			return
+		}
+
+		if (
+			!threadsListHydrated &&
+			(threadStatus === 'loading' ||
+				threadStatus === 'error' ||
+				(threadStatus === 'ready' && threadListSnapshot.items.length === 0))
+		) {
+			for (let attempt = 0; attempt < 12 && !threadsListHydrated; attempt++) {
+				if (signal?.aborted) return
+				if (attempt > 0) {
+					await new Promise((r) => setTimeout(r, Math.min(80 * attempt, 400)))
+				}
+				await refreshThreads(signal)
+			}
+			if (!threadsListHydrated && !signal?.aborted) {
+				setThreadState(
+					'error',
+					'Unable to load chats. Try refreshing the page.',
+				)
+				update()
+			}
+		}
+
+		if (
+			availableAgentsStatus === 'loading' ||
+			(availableAgentsStatus === 'error' && availableAgents.length === 0)
+		) {
+			await loadAvailableAgents(signal)
+		}
+	}
+
+	async function loadAvailableAgents(signal?: AbortSignal) {
+		try {
+			const nextAvailableAgents = await fetchAvailableAgents(signal)
+			availableAgents = nextAvailableAgents
+			availableAgentsStatus = 'ready'
+			availableAgentsError = null
+			if (!getActiveThreadSummary()) {
+				syncDraftAgentIds()
+			}
+			update()
+		} catch (error) {
+			if (signal?.aborted) return
+			availableAgents = []
+			availableAgentsStatus = 'error'
+			availableAgentsError =
+				error instanceof Error ? error.message : 'Unable to load agents.'
+			update()
+		}
+	}
+
 	handle.on(routerEvents, {
 		navigate: () => {
-			void handle.queueTask(async () => {
-				await syncActiveThreadFromLocation()
-			})
+			void syncActiveThreadFromLocation()
 		},
 	})
 
-	async function createAndSelectThread() {
+	handle.queueTask(() => {
+		if (typeof window === 'undefined') return
+		const mediaQueryList = window.matchMedia(MOBILE_LAYOUT_MEDIA_QUERY)
+		const handleMediaQueryChange = (event?: MediaQueryListEvent) => {
+			syncMobileViewportState(event?.matches ?? mediaQueryList.matches)
+		}
+		handleMediaQueryChange()
+		mediaQueryList.addEventListener('change', handleMediaQueryChange)
+		handle.signal.addEventListener(
+			'abort',
+			() => {
+				mediaQueryList.removeEventListener('change', handleMediaQueryChange)
+			},
+			{ once: true },
+		)
+	})
+
+	function ensureChatDataBootstrap() {
+		if (chatDataBootstrapPromise) return
+		chatDataBootstrapPromise = bootstrapChatData(handle.signal).finally(() => {
+			chatDataBootstrapPromise = null
+		})
+	}
+
+	async function createAndSelectThread(input?: { agentIds?: Array<string> }) {
 		const thread = await createThread({
-			agentId: getAgentIdFromLocation(),
+			agentIds: input?.agentIds ?? getSelectedAgentIds(),
 		})
 		navigate(buildThreadHref(thread.id))
 		await refreshThreads()
@@ -789,7 +1084,7 @@ export function ChatRoute(handle: Handle) {
 		actionError = null
 		update()
 		try {
-			await createAndSelectThread()
+			await createAndSelectThread({ agentIds: getSelectedAgentIds() })
 			await activeClient?.waitUntilConnected()
 		} catch (error) {
 			actionError =
@@ -849,6 +1144,58 @@ export function ChatRoute(handle: Handle) {
 		}
 	}
 
+	async function handleAgentSelectionChange(nextAgentIds: Array<string>) {
+		const normalizedAgentIds = normalizeSelectedAgentIds(nextAgentIds)
+		const activeThread = getActiveThreadSummary()
+		if (!activeThread) {
+			draftAgentIds = normalizedAgentIds
+			update()
+			return
+		}
+
+		const previousAgentIds = activeThread.agentIds
+		updateThreadListFromSnapshot((threads) =>
+			threads.map((thread) =>
+				thread.id === activeThread.id
+					? {
+							...thread,
+							agentId: normalizedAgentIds[0] ?? null,
+							agentIds: normalizedAgentIds,
+						}
+					: thread,
+			),
+		)
+		update()
+
+		try {
+			const updatedThread = await updateThreadAgents(
+				activeThread.id,
+				normalizedAgentIds,
+			)
+			updateThreadListFromSnapshot((threads) =>
+				threads.map((thread) =>
+					thread.id === updatedThread.id ? updatedThread : thread,
+				),
+			)
+			update()
+		} catch (error) {
+			updateThreadListFromSnapshot((threads) =>
+				threads.map((thread) =>
+					thread.id === activeThread.id
+						? {
+								...thread,
+								agentId: previousAgentIds[0] ?? null,
+								agentIds: previousAgentIds,
+							}
+						: thread,
+				),
+			)
+			actionError =
+				error instanceof Error ? error.message : 'Unable to update chat agents.'
+			update()
+		}
+	}
+
 	async function handleSubmit(event: SubmitEvent) {
 		event.preventDefault()
 		actionError = null
@@ -862,7 +1209,7 @@ export function ChatRoute(handle: Handle) {
 			let client = activeClient
 
 			if (!client) {
-				await createAndSelectThread()
+				await createAndSelectThread({ agentIds: getSelectedAgentIds() })
 				client = activeClient
 			}
 
@@ -884,19 +1231,30 @@ export function ChatRoute(handle: Handle) {
 		}
 	}
 
-	return () => {
-		if (threadStatus === 'loading') {
-			handle.queueTask(refreshThreads)
-		}
+	ensureChatDataBootstrap()
 
+	return () => {
 		const threads = getThreads()
-		const activeThread = activeThreadId
-			? (threads.find((thread) => thread.id === activeThreadId) ?? null)
-			: null
+		const activeThread = getActiveThreadSummary()
+		const requestedAgentIds = getRequestedAgentIdsFromLocation()
 		const showEmptyStateComposer =
 			!activeThread &&
 			threadStatus !== 'error' &&
-			(threads.length === 0 || Boolean(getAgentIdFromLocation()))
+			(threads.length === 0 || Boolean(requestedAgentIds?.length))
+		const selectedAgentIds = getSelectedAgentIds()
+		const showThreadSidebar = !isMobileViewport || !activeThread
+		const showChatPanel =
+			!isMobileViewport || Boolean(activeThread) || showEmptyStateComposer
+		const agentSelectionControl = agentMultiSelectCombobox({
+			id: activeThread
+				? `thread-agents-${activeThread.id}`
+				: 'draft-thread-agents',
+			agents: availableAgents,
+			selectedAgentIds,
+			error: availableAgentsError,
+			isLoading: availableAgentsStatus === 'loading',
+			onSelectionChange: handleAgentSelectionChange,
+		})
 
 		return (
 			<section
@@ -917,11 +1275,15 @@ export function ChatRoute(handle: Handle) {
 						gridTemplateColumns: '18rem minmax(0, 1fr)',
 						alignItems: 'stretch',
 						minHeight: CHAT_PANEL_HEIGHT,
+						[mq.mobile]: {
+							gridTemplateColumns: '1fr',
+							minHeight: undefined,
+						},
 					}}
 				>
 					<aside
 						css={{
-							display: 'flex',
+							display: showThreadSidebar ? 'flex' : 'none',
 							flexDirection: 'column',
 							gap: spacing.md,
 							padding: spacing.md,
@@ -933,8 +1295,25 @@ export function ChatRoute(handle: Handle) {
 							top: spacing.lg,
 							height: CHAT_PANEL_HEIGHT,
 							overflow: 'hidden',
+							[mq.mobile]: {
+								position: 'static',
+								top: 'auto',
+								height: 'auto',
+								maxHeight: MOBILE_CHAT_PANEL_HEIGHT,
+								order: 1,
+							},
 						}}
 					>
+						<h2
+							css={{
+								margin: 0,
+								color: colors.text,
+								fontSize: typography.fontSize.lg,
+								fontWeight: typography.fontWeight.semibold,
+							}}
+						>
+							Chats
+						</h2>
 						<button
 							type="button"
 							on={{ click: handleCreateThread }}
@@ -955,16 +1334,6 @@ export function ChatRoute(handle: Handle) {
 						>
 							New thread
 						</button>
-						<h2
-							css={{
-								margin: 0,
-								color: colors.text,
-								fontSize: typography.fontSize.lg,
-								fontWeight: typography.fontWeight.semibold,
-							}}
-						>
-							Chats
-						</h2>
 						<input
 							type="search"
 							value={threadSearch}
@@ -1144,6 +1513,10 @@ export function ChatRoute(handle: Handle) {
 													opacity: 0,
 													pointerEvents: 'none',
 													transition: `opacity ${transitions.normal}, background-color ${transitions.normal}, border-color ${transitions.normal}, color ${transitions.normal}`,
+													[mq.mobile]: {
+														opacity: 1,
+														pointerEvents: 'auto',
+													},
 													'&:hover': {
 														backgroundColor: colors.danger,
 														borderColor: colors.dangerHover,
@@ -1226,7 +1599,7 @@ export function ChatRoute(handle: Handle) {
 
 					<div
 						css={{
-							display: 'flex',
+							display: showChatPanel ? 'flex' : 'none',
 							flexDirection: 'column',
 							gap: spacing.md,
 							padding: spacing.xl,
@@ -1235,7 +1608,13 @@ export function ChatRoute(handle: Handle) {
 							backgroundColor: colors.surface,
 							boxShadow: shadows.sm,
 							height: CHAT_PANEL_HEIGHT,
-							overflow: 'hidden',
+							overflow: 'visible',
+							[mq.mobile]: {
+								order: 2,
+								padding: spacing.md,
+								height: activeThread ? MOBILE_CHAT_PANEL_HEIGHT : 'auto',
+								minHeight: activeThread ? MOBILE_CHAT_PANEL_HEIGHT : undefined,
+							},
 						}}
 					>
 						{activeThread ? (
@@ -1247,14 +1626,47 @@ export function ChatRoute(handle: Handle) {
 										justifyContent: 'space-between',
 										alignItems: 'center',
 										gap: spacing.md,
+										[CHAT_HEADER_STACK_MEDIA_QUERY]: {
+											flexDirection: 'column',
+											alignItems: 'stretch',
+										},
+										[mq.mobile]: {
+											flexDirection: 'column',
+											alignItems: 'stretch',
+										},
 									}}
 								>
 									<div
 										css={{
+											display: 'flex',
+											alignItems: 'center',
+											gap: spacing.sm,
 											position: 'relative',
 											minWidth: 0,
+											flex: 1,
 										}}
 									>
+										{isMobileViewport ? (
+											<a
+												href="/chat"
+												css={{
+													display: 'inline-flex',
+													alignItems: 'center',
+													justifyContent: 'center',
+													padding: `${spacing.xs} ${spacing.sm}`,
+													borderRadius: radius.full,
+													border: `1px solid ${colors.border}`,
+													backgroundColor: colors.background,
+													color: colors.text,
+													fontSize: typography.fontSize.sm,
+													fontWeight: typography.fontWeight.medium,
+													flexShrink: 0,
+													textDecoration: 'none',
+												}}
+											>
+												Chats
+											</a>
+										) : null}
 										<span
 											aria-hidden={!disconnectedIndicator.isShowing}
 											aria-label={
@@ -1286,7 +1698,14 @@ export function ChatRoute(handle: Handle) {
 												transition: `opacity ${transitions.normal}, transform ${transitions.normal}`,
 											}}
 										/>
-										<h3 css={{ margin: 0, color: colors.text, minWidth: 0 }}>
+										<h3
+											css={{
+												margin: 0,
+												color: colors.text,
+												minWidth: 0,
+												flex: 1,
+											}}
+										>
 											<EditableText
 												id={`thread-title-${activeThread.id}`}
 												ariaLabel="Chat title"
@@ -1301,6 +1720,21 @@ export function ChatRoute(handle: Handle) {
 												}}
 											/>
 										</h3>
+									</div>
+									<div
+										css={{
+											width: '18rem',
+											maxWidth: '100%',
+											flexShrink: 0,
+											[CHAT_HEADER_STACK_MEDIA_QUERY]: {
+												width: '100%',
+											},
+											[mq.mobile]: {
+												width: '100%',
+											},
+										}}
+									>
+										{agentSelectionControl}
 									</div>
 								</div>
 
@@ -1368,7 +1802,7 @@ export function ChatRoute(handle: Handle) {
 												}}
 											>
 												<strong css={{ color: colors.text }}>
-													{message.role === 'user' ? 'You' : 'Assistant'}
+													{getAssistantSpeakerName(message)}
 												</strong>
 												<div css={{ display: 'grid', gap: spacing.sm }}>
 													{renderMessageParts(
@@ -1395,7 +1829,9 @@ export function ChatRoute(handle: Handle) {
 													backgroundColor: colors.surface,
 												}}
 											>
-												<strong css={{ color: colors.text }}>Assistant</strong>
+												<strong css={{ color: colors.text }}>
+													Selected agents
+												</strong>
 												<p
 													css={{
 														margin: 0,
@@ -1452,6 +1888,9 @@ export function ChatRoute(handle: Handle) {
 										maxWidth: '56rem',
 										width: '100%',
 										margin: '0 auto',
+										[mq.mobile]: {
+											maxWidth: '100%',
+										},
 									}}
 								>
 									<label css={{ display: 'grid', gap: spacing.xs }}>
@@ -1476,7 +1915,7 @@ export function ChatRoute(handle: Handle) {
 														resizeMessageInput(event.currentTarget),
 													keydown: handleComposerKeyDown,
 												}}
-												placeholder='Ask a question or send "help" when using the local mock.'
+												placeholder="Ask a question"
 												css={{
 													display: 'block',
 													width: '100%',
@@ -1546,6 +1985,24 @@ export function ChatRoute(handle: Handle) {
 									paddingBottom: spacing.sm,
 								}}
 							>
+								<div
+									css={{
+										display: 'grid',
+										gap: spacing.sm,
+										marginBottom: spacing.md,
+									}}
+								>
+									<span
+										css={{
+											color: colors.text,
+											fontSize: typography.fontSize.sm,
+											fontWeight: typography.fontWeight.medium,
+										}}
+									>
+										Agents
+									</span>
+									{agentSelectionControl}
+								</div>
 								<form
 									on={{ submit: handleSubmit }}
 									css={{
@@ -1568,7 +2025,7 @@ export function ChatRoute(handle: Handle) {
 													resizeMessageInput(event.currentTarget),
 												keydown: handleComposerKeyDown,
 											}}
-											placeholder='Ask a question or send "help" when using the local mock.'
+											placeholder="Ask a question"
 											css={{
 												display: 'block',
 												width: '100%',

@@ -48,6 +48,7 @@ export const chatThreadsTable = createTable({
 		id: string(),
 		user_id: number(),
 		agent_id: optional(nullable(string())),
+		agent_ids_json: string(),
 		title: string(),
 		last_message_preview: string(),
 		message_count: number(),

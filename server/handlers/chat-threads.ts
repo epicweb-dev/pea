@@ -57,23 +57,28 @@ export function createChatThreadsHandler(appEnv: AppEnv) {
 				return jsonResponse({ ok: true, ...page })
 			}
 
-			let requestedAgentId: string | null = null
+			let requestedAgentIds: Array<string> = []
 			const contentType = request.headers.get('Content-Type') ?? ''
 			if (contentType.includes('application/json')) {
 				const body = (await request.json().catch(() => null)) as
-					| { agentId?: unknown }
+					| { agentId?: unknown; agentIds?: unknown }
 					| null
-				requestedAgentId =
-					typeof body?.agentId === 'string' ? body.agentId.trim() || null : null
+				if (Array.isArray(body?.agentIds)) {
+					requestedAgentIds = body.agentIds
+						.filter((value): value is string => typeof value === 'string')
+						.map((value) => value.trim())
+						.filter(Boolean)
+				} else if (typeof body?.agentId === 'string') {
+					const requestedAgentId = body.agentId.trim()
+					requestedAgentIds = requestedAgentId ? [requestedAgentId] : []
+				}
 			}
-
-			const agent = requestedAgentId
-				? await agentsStore.getAvailableById(requestedAgentId)
-				: await agentsStore.getDefault()
-			const thread = await store.createForUser(
-				user.userId,
-				agent?.id ?? requestedAgentId,
-			)
+			const filteredAgentIds = await Promise.all(
+				requestedAgentIds.map(async (agentId) =>
+					(await agentsStore.getAvailableById(agentId))?.id ?? null,
+				),
+			).then((ids) => ids.filter((agentId): agentId is string => Boolean(agentId)))
+			const thread = await store.createForUser(user.userId, filteredAgentIds)
 			return jsonResponse({ ok: true, thread }, { status: 201 })
 		},
 	} satisfies BuildAction<
@@ -197,5 +202,67 @@ export function createUpdateChatThreadHandler(appEnv: AppEnv) {
 	} satisfies BuildAction<
 		typeof routes.chatThreadsUpdate.method,
 		typeof routes.chatThreadsUpdate.pattern
+	>
+}
+
+export function createUpdateChatThreadAgentsHandler(appEnv: AppEnv) {
+	const store = createChatThreadsStore(appEnv.APP_DB)
+
+	return {
+		middleware: [],
+		async action({ request }) {
+			const user = await readAuthenticatedAppUser(request, appEnv as Env)
+			if (!user) {
+				return jsonResponse(
+					{ ok: false, error: 'Unauthorized' },
+					{ status: 401 },
+				)
+			}
+
+			let body: unknown
+			try {
+				body = await request.json()
+			} catch {
+				return jsonResponse(
+					{ ok: false, error: 'Invalid JSON payload.' },
+					{ status: 400 },
+				)
+			}
+
+			const threadId =
+				body &&
+				typeof body === 'object' &&
+				typeof (body as { threadId?: unknown }).threadId === 'string'
+					? (body as { threadId: string }).threadId.trim()
+					: ''
+			const agentIds =
+				body &&
+				typeof body === 'object' &&
+				Array.isArray((body as { agentIds?: unknown }).agentIds)
+					? (body as { agentIds: Array<unknown> }).agentIds
+							.filter((value): value is string => typeof value === 'string')
+							.map((value) => value.trim())
+							.filter(Boolean)
+					: []
+			if (!threadId) {
+				return jsonResponse(
+					{ ok: false, error: 'Thread ID is required.' },
+					{ status: 400 },
+				)
+			}
+
+			const thread = await store.updateAgentsForUser(user.userId, threadId, agentIds)
+			if (!thread) {
+				return jsonResponse(
+					{ ok: false, error: 'Thread not found.' },
+					{ status: 404 },
+				)
+			}
+
+			return jsonResponse({ ok: true, thread })
+		},
+	} satisfies BuildAction<
+		typeof routes.chatThreadsAgentsUpdate.method,
+		typeof routes.chatThreadsAgentsUpdate.pattern
 	>
 }

@@ -1,18 +1,22 @@
 import { AIChatAgent } from '@cloudflare/ai-chat'
 import {
-	type StreamTextOnFinishCallback,
+	createUIMessageStream,
+	createUIMessageStreamResponse,
 	type ToolSet,
 	type UIMessage,
+	type StreamTextOnFinishCallback,
 } from 'ai'
 import { type Connection, type ConnectionContext } from 'agents'
 import { createMcpCallerContext } from '#mcp/context.ts'
 import {
+	type ChatAssistantMessageMetadata,
 	envDefaultModelPreset,
 	type ManagedChatAgent,
 } from '#shared/chat.ts'
 import {
 	createAgentsStore,
 	defaultManagedChatAgentId,
+	defaultManagedChatAgentName,
 	defaultManagedChatAgentSystemPrompt,
 } from '#server/agents.ts'
 import { readAuthenticatedAppUser } from '#server/authenticated-user.ts'
@@ -27,9 +31,28 @@ function resolveAgentModel(agent: ManagedChatAgent) {
 	return null
 }
 
+type ThreadAgentConfig = {
+	id: string
+	name: string
+	systemPrompt: string
+	model: string | null
+}
+
+const noResponseToken = '[[NO_RESPONSE]]'
+
+function createManagedAgentConfig(agent: ManagedChatAgent): ThreadAgentConfig {
+	return {
+		id: agent.id,
+		name: agent.name,
+		systemPrompt: agent.systemPrompt,
+		model: resolveAgentModel(agent),
+	}
+}
+
 function createFallbackAgentConfig() {
 	return {
 		id: defaultManagedChatAgentId,
+		name: defaultManagedChatAgentName,
 		systemPrompt: defaultManagedChatAgentSystemPrompt,
 		model: null,
 	}
@@ -53,6 +76,79 @@ function getLatestUserMessageText(messages: Array<UIMessage>) {
 	return getTextParts(latestMessage).join('\n').trim()
 }
 
+function getAssistantMessageMetadata(message: UIMessage) {
+	if (!message.metadata || typeof message.metadata !== 'object') {
+		return null
+	}
+	const metadata = message.metadata as {
+		agentId?: unknown
+		agentName?: unknown
+	}
+	return {
+		agentId:
+			typeof metadata.agentId === 'string' ? metadata.agentId.trim() || null : null,
+		agentName:
+			typeof metadata.agentName === 'string'
+				? metadata.agentName.trim() || null
+				: null,
+	} satisfies ChatAssistantMessageMetadata
+}
+
+function buildToolPartSummary(
+	part: {
+		type: string
+		state?: unknown
+		input?: unknown
+		output?: unknown
+		errorText?: unknown
+	},
+) {
+	if (!part.type.startsWith('tool-')) return ''
+	const lines = [part.type.replace(/^tool-/, '')]
+	if ('state' in part && typeof part.state === 'string') {
+		lines.push(`state: ${part.state}`)
+	}
+	if ('input' in part && part.input !== undefined) {
+		lines.push(`input: ${JSON.stringify(part.input)}`)
+	}
+	if ('output' in part && part.output !== undefined) {
+		lines.push(`output: ${JSON.stringify(part.output)}`)
+	}
+	if ('errorText' in part && typeof part.errorText === 'string') {
+		lines.push(`error: ${part.errorText}`)
+	}
+	return lines.join('\n')
+}
+
+function buildMessageTextForAgentContext(message: UIMessage) {
+	const textParts = getTextParts(message)
+	const otherParts = message.parts
+		.map((part) => buildToolPartSummary(part as { type: string }))
+		.filter(Boolean)
+	const combinedText = [...textParts, ...otherParts].join('\n').trim()
+	if (message.role !== 'assistant') {
+		return combinedText
+	}
+	const metadata = getAssistantMessageMetadata(message)
+	const speakerName = metadata?.agentName ?? 'Assistant'
+	if (!combinedText) return `${speakerName}:`
+	return `${speakerName}: ${combinedText}`
+}
+
+function buildConversationMessagesForAgent(messages: Array<UIMessage>) {
+	const conversationMessages: Array<UIMessage> = []
+	for (const message of messages) {
+		const text = buildMessageTextForAgentContext(message)
+		if (!text) continue
+		conversationMessages.push({
+			id: message.id,
+			role: message.role,
+			parts: [{ type: 'text', text }],
+		})
+	}
+	return conversationMessages
+}
+
 function buildThreadTitle(messages: Array<UIMessage>) {
 	const firstUserMessage = messages.find((message) => message.role === 'user')
 	if (!firstUserMessage) return ''
@@ -67,12 +163,46 @@ function buildLastPreview(input: { userText: string; assistantText?: string }) {
 	return input.userText.trim().slice(0, 160)
 }
 
-function createTextResponse(text: string, chunks?: Array<string>) {
-	const body = chunks && chunks.length > 0 ? chunks.join('') : text
-	return new Response(body, {
-		headers: {
-			'Content-Type': 'text/plain; charset=utf-8',
-		},
+function createEmptyResponse() {
+	return createUIMessageStreamResponse({
+		stream: createUIMessageStream({
+			execute() {},
+		}),
+	})
+}
+
+function createAssistantTextResponse(text: string) {
+	return createUIMessageStreamResponse({
+		stream: createUIMessageStream<UIMessage<ChatAssistantMessageMetadata>>({
+			execute({ writer }) {
+				const textPartId = crypto.randomUUID()
+				const metadata = {
+					agentId: null,
+					agentName: 'Selected agents',
+				} satisfies ChatAssistantMessageMetadata
+				writer.write({
+					type: 'start',
+					messageMetadata: metadata,
+				})
+				writer.write({
+					type: 'text-start',
+					id: textPartId,
+				})
+				writer.write({
+					type: 'text-delta',
+					id: textPartId,
+					delta: text,
+				})
+				writer.write({
+					type: 'text-end',
+					id: textPartId,
+				})
+				writer.write({
+					type: 'finish',
+					messageMetadata: metadata,
+				})
+			},
+		}),
 	})
 }
 
@@ -188,16 +318,70 @@ function createKnownMockToolResult(
 	return null
 }
 
+function buildManagedAgentSystemPrompt(input: {
+	agent: ThreadAgentConfig
+	selectedAgents: Array<ThreadAgentConfig>
+}) {
+	const otherSelectedAgents = input.selectedAgents
+		.filter((agent) => agent.id !== input.agent.id)
+		.map((agent) => agent.name)
+	const instructions = [
+		input.agent.systemPrompt.trim(),
+		'',
+		`You are ${input.agent.name}, one participant in a shared chat with the user.`,
+		'Only respond when the latest message is from the user and you can add distinct, useful value.',
+		'Do not respond to messages from other agents. Do not critique or answer another agent unless the user explicitly asks you to.',
+		`If you should stay silent, reply with exactly ${noResponseToken} and nothing else.`,
+	]
+	if (otherSelectedAgents.length > 0) {
+		instructions.push(
+			`Other selected agents in this chat: ${otherSelectedAgents.join(', ')}.`,
+		)
+	}
+	return instructions.join('\n')
+}
+
+function buildAssistantMessage(
+	agent: ThreadAgentConfig,
+	text: string,
+): UIMessage<ChatAssistantMessageMetadata> {
+	return {
+		id: `assistant_${crypto.randomUUID()}`,
+		role: 'assistant',
+		metadata: {
+			agentId: agent.id,
+			agentName: agent.name,
+		},
+		parts: [{ type: 'text', text }],
+	}
+}
+
+function normalizeAgentMatchValue(value: string) {
+	return value
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, ' ')
+		.trim()
+}
+
+function buildCombinedAssistantText(
+	messages: Array<UIMessage<ChatAssistantMessageMetadata>>,
+) {
+	return messages
+		.map((message) => {
+			const metadata = getAssistantMessageMetadata(message)
+			const agentName = metadata?.agentName ?? 'Assistant'
+			const text = getTextParts(message).join('\n').trim()
+			return text ? `${agentName}:\n${text}` : agentName
+		})
+		.join('\n\n')
+		.trim()
+}
+
 export class ChatAgent extends AIChatAgent<Env> {
 	waitForMcpConnections = true
 	private runtimeContext: {
 		appUserId: number
 		baseUrl: string
-		agent: {
-			id: string
-			systemPrompt: string
-			model: string | null
-		}
 		user: ReturnType<typeof createMcpCallerContext>['user']
 	} | null = null
 
@@ -255,6 +439,96 @@ export class ChatAgent extends AIChatAgent<Env> {
 
 	private getAgentsStore() {
 		return createAgentsStore(this.env.APP_DB)
+	}
+
+	private async getSelectedAgentsForCurrentThread() {
+		const { appUserId } = this.getRuntimeContext()
+		const thread = await this.getThreadStore().getForUser(appUserId, this.name)
+		if (!thread) {
+			throw new Error('Thread not found.')
+		}
+		const availableAgents = await this.getAgentsStore().listAvailable()
+		const availableAgentsById = new Map(
+			availableAgents.map((agent) => [agent.id, agent] as const),
+		)
+		const selectedAgents = thread.agentIds
+			.map((agentId) => availableAgentsById.get(agentId))
+			.filter((agent): agent is ManagedChatAgent => Boolean(agent))
+			.map(createManagedAgentConfig)
+		if (selectedAgents.length > 0) {
+			return selectedAgents
+		}
+
+		const fallbackAgent = await this.getAgentsStore().getDefault()
+		return [fallbackAgent ? createManagedAgentConfig(fallbackAgent) : createFallbackAgentConfig()]
+	}
+
+	private shouldMockAgentRespond(input: {
+		agent: ThreadAgentConfig
+		selectedAgents: Array<ThreadAgentConfig>
+		latestUserText: string
+	}) {
+		const normalizedUserText = normalizeAgentMatchValue(input.latestUserText)
+		if (!normalizedUserText) return true
+		const mentionedAgents = input.selectedAgents.filter((agent) => {
+			const normalizedName = normalizeAgentMatchValue(agent.name)
+			const normalizedId = normalizeAgentMatchValue(agent.id)
+			return (
+				(normalizedName && normalizedUserText.includes(normalizedName)) ||
+				(normalizedId && normalizedUserText.includes(normalizedId))
+			)
+		})
+		if (mentionedAgents.length === 0) return true
+		return mentionedAgents.some((agent) => agent.id === input.agent.id)
+	}
+
+	private async resolveMockToolCallAssistantText(
+		result: Extract<AiRuntimeResult, { kind: 'tool-call' }>,
+	) {
+		const knownMockToolResult = createKnownMockToolResult(result)
+		if (knownMockToolResult) {
+			return knownMockToolResult.assistantText
+		}
+
+		const tool = this.mcp
+			.listTools()
+			.find((entry) => entry.name === result.toolName)
+		if (!tool) {
+			return `Mock tool "${result.toolName}" is not available.`
+		}
+
+		let toolResult: Awaited<ReturnType<typeof this.mcp.callTool>>
+		try {
+			toolResult = await this.mcp.callTool({
+				serverId: tool.serverId,
+				name: result.toolName,
+				arguments: result.input,
+			})
+		} catch (error) {
+			const message =
+				error instanceof Error ? error.message : 'Unknown mock tool error.'
+			return `Mock tool "${result.toolName}" failed to execute: ${message}`
+		}
+		const output =
+			'structuredContent' in toolResult && toolResult.structuredContent
+				? toolResult.structuredContent
+				: toolResult.content
+		const toolContents = Array.isArray(toolResult.content)
+			? (toolResult.content as Array<{ type: string; text?: string }>)
+			: []
+
+		const assistantText =
+			result.text?.trim() ||
+			toolContents
+				.filter((part) => part.type === 'text')
+				.map((part) => part.text)
+				.join('\n')
+				.trim()
+
+		return (
+			assistantText ||
+			(typeof output === 'string' ? output : JSON.stringify(output, null, 2))
+		)
 	}
 
 	getMessagePage(input?: {
@@ -333,22 +607,10 @@ export class ChatAgent extends AIChatAgent<Env> {
 		if (!thread) {
 			throw new Error('Thread not found for authenticated user.')
 		}
-		const configuredAgent = thread.agentId
-			? await this.getAgentsStore().getById(thread.agentId)
-			: null
-		const fallbackAgent = configuredAgent ?? (await this.getAgentsStore().getDefault())
-		const agentConfig = fallbackAgent
-			? {
-					id: fallbackAgent.id,
-					systemPrompt: fallbackAgent.systemPrompt,
-					model: resolveAgentModel(fallbackAgent),
-			  }
-			: createFallbackAgentConfig()
 		const baseUrl = new URL(request.url).origin
 		this.runtimeContext = {
 			appUserId: user.userId,
 			baseUrl,
-			agent: agentConfig,
 			user: user.mcpUser,
 		}
 		this.persistRuntimeContext()
@@ -387,115 +649,74 @@ export class ChatAgent extends AIChatAgent<Env> {
 		return new Response('Not implemented', { status: 404 })
 	}
 
-	private async createMockToolCallResponse(
-		result: Extract<AiRuntimeResult, { kind: 'tool-call' }>,
-	) {
-		const knownMockToolResult = createKnownMockToolResult(result)
-		if (knownMockToolResult) {
-			await this.syncThreadMetadata({
-				assistantText: knownMockToolResult.assistantText,
-				messageCountOffset: 1,
-			})
-			return createTextResponse(knownMockToolResult.assistantText)
-		}
-
-		const tool = this.mcp
-			.listTools()
-			.find((entry) => entry.name === result.toolName)
-		if (!tool) {
-			return createErrorResponse(
-				`Mock tool "${result.toolName}" is not available.`,
-			)
-		}
-
-		let toolResult: Awaited<ReturnType<typeof this.mcp.callTool>>
-		try {
-			toolResult = await this.mcp.callTool({
-				serverId: tool.serverId,
-				name: result.toolName,
-				arguments: result.input,
-			})
-		} catch (error) {
-			const message =
-				error instanceof Error ? error.message : 'Unknown mock tool error.'
-			return createErrorResponse(
-				`Mock tool "${result.toolName}" failed to execute: ${message}`,
-			)
-		}
-		const output =
-			'structuredContent' in toolResult && toolResult.structuredContent
-				? toolResult.structuredContent
-				: toolResult.content
-		const toolContents = Array.isArray(toolResult.content)
-			? (toolResult.content as Array<{ type: string; text?: string }>)
-			: []
-
-		const assistantText =
-			result.text?.trim() ||
-			toolContents
-				.filter((part) => part.type === 'text')
-				.map((part) => part.text)
-				.join('\n')
-				.trim()
-
-		await this.syncThreadMetadata({
-			assistantText,
-			messageCountOffset: 1,
-		})
-
-		const fallbackText =
-			assistantText ||
-			(typeof output === 'string' ? output : JSON.stringify(output, null, 2))
-		return createTextResponse(fallbackText)
-	}
-
 	async onChatMessage(
 		onFinish: StreamTextOnFinishCallback<ToolSet>,
 		options?: { abortSignal?: AbortSignal },
 	): Promise<Response | undefined> {
+		void onFinish
 		const aiRuntime = createAiRuntime(this.env)
 		const tools = this.mcp.getAITools()
 		const toolNames = this.mcp.listTools().map((tool) => tool.name)
-		const { agent } = this.getRuntimeContext()
-		const wrappedOnFinish: StreamTextOnFinishCallback<ToolSet> = async (
-			event,
-		) => {
-			await onFinish(event)
-			await this.syncThreadMetadata({
-				assistantText: event.text,
-				messageCountOffset: 1,
+		const selectedAgents = await this.getSelectedAgentsForCurrentThread()
+		const latestUserText = getLatestUserMessageText(this.messages)
+		const conversationMessages = buildConversationMessagesForAgent(this.messages)
+		const assistantMessages: Array<UIMessage<ChatAssistantMessageMetadata>> = []
+		const generationErrors: Array<string> = []
+
+		for (const agent of selectedAgents) {
+			if (
+				this.env.AI_MODE !== 'remote' &&
+				!this.shouldMockAgentRespond({
+					agent,
+					selectedAgents,
+					latestUserText,
+				})
+			) {
+				continue
+			}
+
+			const runtimeResult = await aiRuntime.generateChatReply({
+				messages: conversationMessages,
+				system: buildManagedAgentSystemPrompt({
+					agent,
+					selectedAgents,
+				}),
+				model: agent.model,
+				tools,
+				toolNames,
+				abortSignal: options?.abortSignal,
 			})
+
+			if (runtimeResult.kind === 'error') {
+				generationErrors.push(runtimeResult.message)
+				continue
+			}
+
+			const assistantText =
+				runtimeResult.kind === 'tool-call'
+					? await this.resolveMockToolCallAssistantText(runtimeResult)
+					: runtimeResult.text.trim()
+			if (!assistantText || assistantText === noResponseToken) {
+				continue
+			}
+
+			assistantMessages.push(buildAssistantMessage(agent, assistantText))
 		}
 
-		await this.syncThreadMetadata({})
-
-		const runtimeResult = await aiRuntime.streamChatReply({
-			messages: this.messages,
-			system: agent.systemPrompt,
-			model: agent.model,
-			tools,
-			toolNames,
-			abortSignal: options?.abortSignal,
-			onFinish: wrappedOnFinish,
-		})
-
-		if (runtimeResult.kind === 'response') {
-			return runtimeResult.response
-		}
-
-		if (runtimeResult.kind === 'error') {
-			return createErrorResponse(runtimeResult.message)
-		}
-
-		if (runtimeResult.kind === 'tool-call') {
-			return this.createMockToolCallResponse(runtimeResult)
-		}
-
+		const combinedAssistantText = buildCombinedAssistantText(assistantMessages)
 		await this.syncThreadMetadata({
-			assistantText: runtimeResult.text,
-			messageCountOffset: 1,
+			assistantText: assistantMessages.at(-1)
+				? getTextParts(assistantMessages.at(-1)!).join('\n').trim()
+				: undefined,
+			messageCountOffset: combinedAssistantText ? 1 : 0,
 		})
-		return createTextResponse(runtimeResult.text, runtimeResult.chunks)
+		if (combinedAssistantText) {
+			return createAssistantTextResponse(combinedAssistantText)
+		}
+		if (generationErrors.length > 0) {
+			return createErrorResponse(generationErrors[0] ?? 'Chat generation failed.')
+		}
+		return createEmptyResponse()
 	}
 
 	async clearThread() {

@@ -2,6 +2,7 @@ import { agentsTable, createDb } from '#worker/db.ts'
 import { type ManagedChatAgent } from '#shared/chat.ts'
 
 export const defaultManagedChatAgentId = 'default-agent'
+export const defaultManagedChatAgentName = 'Default agent'
 export const defaultManagedChatAgentSystemPrompt = [
 	'You are a helpful assistant inside pea.',
 	'Use MCP tools when they provide a more reliable or interactive result than freeform text.',
@@ -122,6 +123,42 @@ export function createAgentsStore(db: D1Database) {
 							deleted_at
 						FROM agents
 						WHERE deleted_at IS NULL
+						ORDER BY is_default DESC, updated_at DESC, name COLLATE NOCASE ASC
+					`,
+				)
+				.all()
+			const rows = result.results as Array<{
+				id: string
+				name: string
+				system_prompt: string
+				model_preset: string
+				custom_model?: string | null
+				is_active: number
+				is_default: number
+				created_at: string
+				updated_at: string
+				deleted_at?: string | null
+			}>
+			return rows.map(toManagedChatAgent)
+		},
+		async listAvailable() {
+			const result = await db
+				.prepare(
+					`
+						SELECT
+							id,
+							name,
+							system_prompt,
+							model_preset,
+							custom_model,
+							is_active,
+							is_default,
+							created_at,
+							updated_at,
+							deleted_at
+						FROM agents
+						WHERE deleted_at IS NULL
+							AND is_active = 1
 						ORDER BY is_default DESC, updated_at DESC, name COLLATE NOCASE ASC
 					`,
 				)
