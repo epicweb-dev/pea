@@ -66,6 +66,10 @@ Use this script to ensure a known test login exists in any deployed environment:
 - Default credentials:
   - email: `kody@kcd.dev`
   - password: `kodylovesyou`
+- Admin account (has admin privileges via `shared/admin.ts`):
+  - `bun tools/seed-test-data.ts --local --email me@kentcdodds.com --password iliketwix`
+  - email: `me@kentcdodds.com`
+  - password: `iliketwix`
 - Override credentials when needed:
   - `bun tools/seed-test-data.ts --email <email> --password <password>`
 - When changing DB schema/model definitions or migrations, review

@@ -3,9 +3,9 @@
 Use this guide to run `pea` locally and understand the minimum setup needed for
 development.
 
-`pea` is the stakeholder simulation service used by the Epic Systems
-Engineering Judgment Workshop. The separate workshop app owns the learner
-experience; this repo owns the agent side of the system.
+`pea` is the stakeholder simulation service used by the Epic Systems Engineering
+Judgment Workshop. The separate workshop app owns the learner experience; this
+repo owns the agent side of the system.
 
 ## Prerequisites
 
@@ -71,6 +71,17 @@ Default test credentials:
 
 - Email: `kody@kcd.dev`
 - Password: `kodylovesyou`
+
+Admin test credentials (seed separately):
+
+```bash
+bun tools/seed-test-data.ts --local --email me@kentcdodds.com --password iliketwix
+```
+
+- Email: `me@kentcdodds.com`
+- Password: `iliketwix`
+
+Admin status is determined by email match in `shared/admin.ts`.
 
 ## Build
 
