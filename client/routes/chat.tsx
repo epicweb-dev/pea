@@ -18,7 +18,9 @@ import {
 import { fetchSessionInfo } from '#client/session.ts'
 import { createSpinDelay } from '#client/spin-delay.ts'
 import {
+	breakpoints,
 	colors,
+	mq,
 	radius,
 	shadows,
 	spacing,
@@ -124,7 +126,9 @@ function buildThreadPreviewFromMessages(
 	return text ? truncatePreview(text) : null
 }
 
-function getAssistantSpeakerName(message: ChatClientSnapshot['messages'][number]) {
+function getAssistantSpeakerName(
+	message: ChatClientSnapshot['messages'][number],
+) {
 	if (message.role !== 'assistant') return 'You'
 	if (!message.metadata || typeof message.metadata !== 'object') {
 		return 'Assistant'
@@ -410,7 +414,10 @@ const INPUT_MIN_HEIGHT = `${INPUT_MIN_HEIGHT_REM}rem`
 const INPUT_RIGHT_PADDING = `${SEND_BUTTON_SIZE_REM + SEND_BUTTON_INSET_REM * 2}rem`
 const SEND_BUTTON_SIZE = `${SEND_BUTTON_SIZE_REM}rem`
 const SEND_BUTTON_INSET = `${SEND_BUTTON_INSET_REM}rem`
-const CHAT_PANEL_HEIGHT = 'calc(100vh - 7rem)'
+const CHAT_PANEL_HEIGHT = 'calc(100dvh - 7rem)'
+const MOBILE_CHAT_PANEL_HEIGHT = 'calc(100dvh - 9rem)'
+const MOBILE_LAYOUT_MEDIA_QUERY = `(max-width: ${breakpoints.mobile})`
+const CHAT_HEADER_STACK_MEDIA_QUERY = '@media (max-width: 900px)'
 /**
  * The outer border should follow the button's contour plus its inset from the edge.
  * radius = button radius + inset
@@ -444,7 +451,9 @@ export function ChatRoute(handle: Handle) {
 	let availableAgents: Array<ManagedChatAgent> = []
 	let availableAgentsStatus: AvailableAgentsStatus = 'loading'
 	let availableAgentsError: string | null = null
-	let draftAgentIds = normalizeSelectedAgentIds(getRequestedAgentIdsFromLocation())
+	let draftAgentIds = normalizeSelectedAgentIds(
+		getRequestedAgentIdsFromLocation(),
+	)
 	let syncInFlight = false
 	/** False until loadInitial succeeds at least once (avoids stuck empty after didLoad false). */
 	let threadsListHydrated = false
@@ -456,6 +465,10 @@ export function ChatRoute(handle: Handle) {
 	let showMessageScrollFadeBottom = false
 	let showThreadListScrollFadeTop = false
 	let showThreadListScrollFadeBottom = false
+	let isMobileViewport =
+		typeof window !== 'undefined'
+			? window.matchMedia(MOBILE_LAYOUT_MEDIA_QUERY).matches
+			: false
 	const disconnectedIndicator = createSpinDelay(handle, { ssr: false })
 	const agentMultiSelectCombobox = AgentMultiSelectCombobox(handle)
 	const deleteThreadChecks = new Map<
@@ -555,7 +568,9 @@ export function ChatRoute(handle: Handle) {
 
 	function syncDraftAgentIds() {
 		const selectedAgentIds = normalizeSelectedAgentIds(draftAgentIds)
-		const availableAgentIdSet = new Set(availableAgents.map((agent) => agent.id))
+		const availableAgentIdSet = new Set(
+			availableAgents.map((agent) => agent.id),
+		)
 		const nextDraftAgentIds = selectedAgentIds.filter((agentId) =>
 			availableAgentIdSet.has(agentId),
 		)
@@ -681,6 +696,15 @@ export function ChatRoute(handle: Handle) {
 		void handle.queueTask(async () => {
 			syncThreadListScrollFades()
 		})
+	}
+
+	function syncMobileViewportState(matches: boolean) {
+		const viewportChanged = isMobileViewport !== matches
+		isMobileViewport = matches
+		if (viewportChanged) {
+			update()
+			void syncActiveThreadFromLocation()
+		}
 	}
 
 	function scheduleScrollToBottom(force = false) {
@@ -860,6 +884,16 @@ export function ChatRoute(handle: Handle) {
 				threads.some((thread) => thread.id === locationThreadId)
 					? locationThreadId
 					: null
+			if (isMobileViewport && !selectedThread) {
+				activeClient?.close()
+				activeClient = null
+				activeThreadId = null
+				resetChatSnapshot()
+				disconnectedIndicator.reset()
+				setMessageScrollFades(false, false)
+				update()
+				return
+			}
 			const resolvedThreadId = selectedThread ?? threads[0]?.id ?? null
 			if (!resolvedThreadId) return
 
@@ -1012,6 +1046,23 @@ export function ChatRoute(handle: Handle) {
 		},
 	})
 
+	handle.queueTask(() => {
+		if (typeof window === 'undefined') return
+		const mediaQueryList = window.matchMedia(MOBILE_LAYOUT_MEDIA_QUERY)
+		const handleMediaQueryChange = (event?: MediaQueryListEvent) => {
+			syncMobileViewportState(event?.matches ?? mediaQueryList.matches)
+		}
+		handleMediaQueryChange()
+		mediaQueryList.addEventListener('change', handleMediaQueryChange)
+		handle.signal.addEventListener(
+			'abort',
+			() => {
+				mediaQueryList.removeEventListener('change', handleMediaQueryChange)
+			},
+			{ once: true },
+		)
+	})
+
 	function ensureChatDataBootstrap() {
 		if (chatDataBootstrapPromise) return
 		chatDataBootstrapPromise = bootstrapChatData(handle.signal).finally(() => {
@@ -1110,14 +1161,17 @@ export function ChatRoute(handle: Handle) {
 							...thread,
 							agentId: normalizedAgentIds[0] ?? null,
 							agentIds: normalizedAgentIds,
-					  }
+						}
 					: thread,
 			),
 		)
 		update()
 
 		try {
-			const updatedThread = await updateThreadAgents(activeThread.id, normalizedAgentIds)
+			const updatedThread = await updateThreadAgents(
+				activeThread.id,
+				normalizedAgentIds,
+			)
 			updateThreadListFromSnapshot((threads) =>
 				threads.map((thread) =>
 					thread.id === updatedThread.id ? updatedThread : thread,
@@ -1132,7 +1186,7 @@ export function ChatRoute(handle: Handle) {
 								...thread,
 								agentId: previousAgentIds[0] ?? null,
 								agentIds: previousAgentIds,
-						  }
+							}
 						: thread,
 				),
 			)
@@ -1180,7 +1234,6 @@ export function ChatRoute(handle: Handle) {
 	ensureChatDataBootstrap()
 
 	return () => {
-
 		const threads = getThreads()
 		const activeThread = getActiveThreadSummary()
 		const requestedAgentIds = getRequestedAgentIdsFromLocation()
@@ -1189,8 +1242,13 @@ export function ChatRoute(handle: Handle) {
 			threadStatus !== 'error' &&
 			(threads.length === 0 || Boolean(requestedAgentIds?.length))
 		const selectedAgentIds = getSelectedAgentIds()
+		const showThreadSidebar = !isMobileViewport || !activeThread
+		const showChatPanel =
+			!isMobileViewport || Boolean(activeThread) || showEmptyStateComposer
 		const agentSelectionControl = agentMultiSelectCombobox({
-			id: activeThread ? `thread-agents-${activeThread.id}` : 'draft-thread-agents',
+			id: activeThread
+				? `thread-agents-${activeThread.id}`
+				: 'draft-thread-agents',
 			agents: availableAgents,
 			selectedAgentIds,
 			error: availableAgentsError,
@@ -1217,11 +1275,15 @@ export function ChatRoute(handle: Handle) {
 						gridTemplateColumns: '18rem minmax(0, 1fr)',
 						alignItems: 'stretch',
 						minHeight: CHAT_PANEL_HEIGHT,
+						[mq.mobile]: {
+							gridTemplateColumns: '1fr',
+							minHeight: undefined,
+						},
 					}}
 				>
 					<aside
 						css={{
-							display: 'flex',
+							display: showThreadSidebar ? 'flex' : 'none',
 							flexDirection: 'column',
 							gap: spacing.md,
 							padding: spacing.md,
@@ -1233,8 +1295,25 @@ export function ChatRoute(handle: Handle) {
 							top: spacing.lg,
 							height: CHAT_PANEL_HEIGHT,
 							overflow: 'hidden',
+							[mq.mobile]: {
+								position: 'static',
+								top: 'auto',
+								height: 'auto',
+								maxHeight: MOBILE_CHAT_PANEL_HEIGHT,
+								order: 1,
+							},
 						}}
 					>
+						<h2
+							css={{
+								margin: 0,
+								color: colors.text,
+								fontSize: typography.fontSize.lg,
+								fontWeight: typography.fontWeight.semibold,
+							}}
+						>
+							Chats
+						</h2>
 						<button
 							type="button"
 							on={{ click: handleCreateThread }}
@@ -1255,16 +1334,6 @@ export function ChatRoute(handle: Handle) {
 						>
 							New thread
 						</button>
-						<h2
-							css={{
-								margin: 0,
-								color: colors.text,
-								fontSize: typography.fontSize.lg,
-								fontWeight: typography.fontWeight.semibold,
-							}}
-						>
-							Chats
-						</h2>
 						<input
 							type="search"
 							value={threadSearch}
@@ -1444,6 +1513,10 @@ export function ChatRoute(handle: Handle) {
 													opacity: 0,
 													pointerEvents: 'none',
 													transition: `opacity ${transitions.normal}, background-color ${transitions.normal}, border-color ${transitions.normal}, color ${transitions.normal}`,
+													[mq.mobile]: {
+														opacity: 1,
+														pointerEvents: 'auto',
+													},
 													'&:hover': {
 														backgroundColor: colors.danger,
 														borderColor: colors.dangerHover,
@@ -1526,7 +1599,7 @@ export function ChatRoute(handle: Handle) {
 
 					<div
 						css={{
-							display: 'flex',
+							display: showChatPanel ? 'flex' : 'none',
 							flexDirection: 'column',
 							gap: spacing.md,
 							padding: spacing.xl,
@@ -1536,6 +1609,12 @@ export function ChatRoute(handle: Handle) {
 							boxShadow: shadows.sm,
 							height: CHAT_PANEL_HEIGHT,
 							overflow: 'visible',
+							[mq.mobile]: {
+								order: 2,
+								padding: spacing.md,
+								height: activeThread ? MOBILE_CHAT_PANEL_HEIGHT : 'auto',
+								minHeight: activeThread ? MOBILE_CHAT_PANEL_HEIGHT : undefined,
+							},
 						}}
 					>
 						{activeThread ? (
@@ -1547,14 +1626,47 @@ export function ChatRoute(handle: Handle) {
 										justifyContent: 'space-between',
 										alignItems: 'center',
 										gap: spacing.md,
+										[CHAT_HEADER_STACK_MEDIA_QUERY]: {
+											flexDirection: 'column',
+											alignItems: 'stretch',
+										},
+										[mq.mobile]: {
+											flexDirection: 'column',
+											alignItems: 'stretch',
+										},
 									}}
 								>
 									<div
 										css={{
+											display: 'flex',
+											alignItems: 'center',
+											gap: spacing.sm,
 											position: 'relative',
 											minWidth: 0,
+											flex: 1,
 										}}
 									>
+										{isMobileViewport ? (
+											<a
+												href="/chat"
+												css={{
+													display: 'inline-flex',
+													alignItems: 'center',
+													justifyContent: 'center',
+													padding: `${spacing.xs} ${spacing.sm}`,
+													borderRadius: radius.full,
+													border: `1px solid ${colors.border}`,
+													backgroundColor: colors.background,
+													color: colors.text,
+													fontSize: typography.fontSize.sm,
+													fontWeight: typography.fontWeight.medium,
+													flexShrink: 0,
+													textDecoration: 'none',
+												}}
+											>
+												Chats
+											</a>
+										) : null}
 										<span
 											aria-hidden={!disconnectedIndicator.isShowing}
 											aria-label={
@@ -1586,7 +1698,14 @@ export function ChatRoute(handle: Handle) {
 												transition: `opacity ${transitions.normal}, transform ${transitions.normal}`,
 											}}
 										/>
-										<h3 css={{ margin: 0, color: colors.text, minWidth: 0 }}>
+										<h3
+											css={{
+												margin: 0,
+												color: colors.text,
+												minWidth: 0,
+												flex: 1,
+											}}
+										>
 											<EditableText
 												id={`thread-title-${activeThread.id}`}
 												ariaLabel="Chat title"
@@ -1607,6 +1726,12 @@ export function ChatRoute(handle: Handle) {
 											width: '18rem',
 											maxWidth: '100%',
 											flexShrink: 0,
+											[CHAT_HEADER_STACK_MEDIA_QUERY]: {
+												width: '100%',
+											},
+											[mq.mobile]: {
+												width: '100%',
+											},
 										}}
 									>
 										{agentSelectionControl}
@@ -1763,6 +1888,9 @@ export function ChatRoute(handle: Handle) {
 										maxWidth: '56rem',
 										width: '100%',
 										margin: '0 auto',
+										[mq.mobile]: {
+											maxWidth: '100%',
+										},
 									}}
 								>
 									<label css={{ display: 'grid', gap: spacing.xs }}>
@@ -1787,7 +1915,7 @@ export function ChatRoute(handle: Handle) {
 														resizeMessageInput(event.currentTarget),
 													keydown: handleComposerKeyDown,
 												}}
-												placeholder='Ask a question or send "help" when using the local mock.'
+												placeholder="Ask a question"
 												css={{
 													display: 'block',
 													width: '100%',
@@ -1897,7 +2025,7 @@ export function ChatRoute(handle: Handle) {
 													resizeMessageInput(event.currentTarget),
 												keydown: handleComposerKeyDown,
 											}}
-											placeholder='Ask a question or send "help" when using the local mock.'
+											placeholder="Ask a question"
 											css={{
 												display: 'block',
 												width: '100%',
