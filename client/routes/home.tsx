@@ -71,15 +71,25 @@ export function HomeRoute(_handle: Handle) {
 						justifyItems: 'center',
 					}}
 				>
-					<img
-						src="/logo.png"
-						alt="pea logo"
+					<div
 						css={{
 							width: '320px',
 							maxWidth: '100%',
-							height: 'auto',
+							aspectRatio: '551 / 453',
 						}}
-					/>
+					>
+						<img
+							src="/logo.png"
+							alt="pea logo"
+							width={551}
+							height={453}
+							css={{
+								display: 'block',
+								width: '100%',
+								height: '100%',
+							}}
+						/>
+					</div>
 					<div css={{ display: 'grid', gap: spacing.sm }}>
 						<h1
 							css={{
