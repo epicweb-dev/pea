@@ -47,9 +47,31 @@ export const chatThreadsTable = createTable({
 	columns: {
 		id: string(),
 		user_id: number(),
+		agent_id: optional(nullable(string())),
 		title: string(),
 		last_message_preview: string(),
 		message_count: number(),
+		created_at: string(),
+		updated_at: string(),
+		deleted_at: optional(nullable(string())),
+	},
+	primaryKey: 'id',
+	timestamps: {
+		createdAt: 'created_at',
+		updatedAt: 'updated_at',
+	},
+})
+
+export const agentsTable = createTable({
+	name: 'agents',
+	columns: {
+		id: string(),
+		name: string(),
+		system_prompt: string(),
+		model_preset: string(),
+		custom_model: optional(nullable(string())),
+		is_active: number(),
+		is_default: number(),
 		created_at: string(),
 		updated_at: string(),
 		deleted_at: optional(nullable(string())),

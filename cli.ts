@@ -4,6 +4,7 @@ import { platform } from 'node:os'
 import readline from 'node:readline'
 import { setTimeout as delay } from 'node:timers/promises'
 import getPort, { clearLockedPorts } from 'get-port'
+import { getLocalRemoteAiEnvError } from '#shared/local-remote-ai-env.ts'
 
 const defaultWorkerPort = 3742
 const defaultMockPort = 8788
@@ -219,6 +220,18 @@ function showHelp(header?: string) {
 async function restartDev(
 	{ announce }: { announce: boolean } = { announce: true },
 ) {
+	const localRemoteAiEnvError = getLocalRemoteAiEnvError({
+		aiMode: process.env.AI_MODE,
+		isLocalDev: true,
+		gatewayId: process.env.AI_GATEWAY_ID,
+		accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
+		apiToken: process.env.CLOUDFLARE_API_TOKEN,
+	})
+	if (localRemoteAiEnvError) {
+		console.error(localRemoteAiEnvError)
+		process.exit(1)
+	}
+
 	await stopChildren(devChildren)
 	const mockEnv = await ensureMockServers()
 	const desiredPort = Number.parseInt(

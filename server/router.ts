@@ -1,6 +1,13 @@
 import { createRouter } from 'remix/fetch-router'
 import { type AppEnv } from '#types/env-schema.ts'
 import { account } from './handlers/account.ts'
+import {
+	adminAgentsPage,
+	createAdminAgentsHandler,
+	createDeleteAdminAgentHandler,
+	createSetDefaultAdminAgentHandler,
+	createUpdateAdminAgentHandler,
+} from './handlers/admin-agents.ts'
 import { createAuthHandler } from './handlers/auth.ts'
 import { chat } from './handlers/chat.ts'
 import {
@@ -30,10 +37,17 @@ export function createAppRouter(appEnv: AppEnv) {
 		},
 	})
 	const chatThreadsHandler = createChatThreadsHandler(appEnv)
+	const adminAgentsHandler = createAdminAgentsHandler(appEnv)
 
 	router.map(routes.home, home)
 	router.map(routes.chat, chat)
 	router.map(routes.chatThread, chat)
+	router.map(routes.adminAgents, adminAgentsPage)
+	router.map(routes.adminAgentsData, adminAgentsHandler)
+	router.map(routes.adminAgentsCreate, adminAgentsHandler)
+	router.map(routes.adminAgentsUpdate, createUpdateAdminAgentHandler(appEnv))
+	router.map(routes.adminAgentsDelete, createDeleteAdminAgentHandler(appEnv))
+	router.map(routes.adminAgentsDefault, createSetDefaultAdminAgentHandler(appEnv))
 	router.map(routes.chatThreads, chatThreadsHandler)
 	router.map(routes.chatThreadsCreate, chatThreadsHandler)
 	router.map(routes.chatThreadsUpdate, createUpdateChatThreadHandler(appEnv))

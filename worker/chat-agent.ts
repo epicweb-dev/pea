@@ -6,16 +6,33 @@ import {
 } from 'ai'
 import { type Connection, type ConnectionContext } from 'agents'
 import { createMcpCallerContext } from '#mcp/context.ts'
+import {
+	envDefaultModelPreset,
+	type ManagedChatAgent,
+} from '#shared/chat.ts'
+import {
+	createAgentsStore,
+	defaultManagedChatAgentId,
+	defaultManagedChatAgentSystemPrompt,
+} from '#server/agents.ts'
 import { readAuthenticatedAppUser } from '#server/authenticated-user.ts'
 import { createChatThreadsStore } from '#server/chat-threads.ts'
 import { createAiRuntime, type AiRuntimeResult } from './ai-runtime.ts'
 
-function buildSystemPrompt() {
-	return [
-		'You are a helpful assistant inside pea.',
-		'Use MCP tools when they provide a more reliable or interactive result than freeform text.',
-		'When a tool is useful, call it instead of guessing.',
-	].join(' ')
+function resolveAgentModel(agent: ManagedChatAgent) {
+	if (agent.customModel?.trim()) return agent.customModel.trim()
+	if (agent.modelPreset !== envDefaultModelPreset) {
+		return agent.modelPreset
+	}
+	return null
+}
+
+function createFallbackAgentConfig() {
+	return {
+		id: defaultManagedChatAgentId,
+		systemPrompt: defaultManagedChatAgentSystemPrompt,
+		model: null,
+	}
 }
 
 function getTextParts(message: UIMessage) {
@@ -176,6 +193,11 @@ export class ChatAgent extends AIChatAgent<Env> {
 	private runtimeContext: {
 		appUserId: number
 		baseUrl: string
+		agent: {
+			id: string
+			systemPrompt: string
+			model: string | null
+		}
 		user: ReturnType<typeof createMcpCallerContext>['user']
 	} | null = null
 
@@ -229,6 +251,10 @@ export class ChatAgent extends AIChatAgent<Env> {
 
 	private getThreadStore() {
 		return createChatThreadsStore(this.env.APP_DB)
+	}
+
+	private getAgentsStore() {
+		return createAgentsStore(this.env.APP_DB)
 	}
 
 	getMessagePage(input?: {
@@ -307,10 +333,22 @@ export class ChatAgent extends AIChatAgent<Env> {
 		if (!thread) {
 			throw new Error('Thread not found for authenticated user.')
 		}
+		const configuredAgent = thread.agentId
+			? await this.getAgentsStore().getById(thread.agentId)
+			: null
+		const fallbackAgent = configuredAgent ?? (await this.getAgentsStore().getDefault())
+		const agentConfig = fallbackAgent
+			? {
+					id: fallbackAgent.id,
+					systemPrompt: fallbackAgent.systemPrompt,
+					model: resolveAgentModel(fallbackAgent),
+			  }
+			: createFallbackAgentConfig()
 		const baseUrl = new URL(request.url).origin
 		this.runtimeContext = {
 			appUserId: user.userId,
 			baseUrl,
+			agent: agentConfig,
 			user: user.mcpUser,
 		}
 		this.persistRuntimeContext()
@@ -418,6 +456,7 @@ export class ChatAgent extends AIChatAgent<Env> {
 		const aiRuntime = createAiRuntime(this.env)
 		const tools = this.mcp.getAITools()
 		const toolNames = this.mcp.listTools().map((tool) => tool.name)
+		const { agent } = this.getRuntimeContext()
 		const wrappedOnFinish: StreamTextOnFinishCallback<ToolSet> = async (
 			event,
 		) => {
@@ -432,7 +471,8 @@ export class ChatAgent extends AIChatAgent<Env> {
 
 		const runtimeResult = await aiRuntime.streamChatReply({
 			messages: this.messages,
-			system: buildSystemPrompt(),
+			system: agent.systemPrompt,
+			model: agent.model,
 			tools,
 			toolNames,
 			abortSignal: options?.abortSignal,

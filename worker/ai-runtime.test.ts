@@ -64,3 +64,22 @@ test('createAiRuntime defaults to mock mode when AI_MODE is missing', async () =
 
 	expect(result.kind).toBe('text')
 })
+
+test('createAiRuntime gives a useful error for missing local remote credentials', async () => {
+	const runtime = createAiRuntime({
+		AI_MODE: 'remote',
+		AI_GATEWAY_ID: 'test-gateway',
+		WRANGLER_IS_LOCAL_DEV: 'true',
+	} as Env)
+
+	await expect(
+		runtime.streamChatReply({
+			messages: [],
+			system: 'test',
+			tools: {},
+			toolNames: [],
+		}),
+	).rejects.toThrow(
+		'Missing environment variables: CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN.',
+	)
+})

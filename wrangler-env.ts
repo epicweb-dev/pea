@@ -3,6 +3,7 @@ import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import net from 'node:net'
 import getPort from 'get-port'
+import { getLocalRemoteAiEnvError } from '#shared/local-remote-ai-env.ts'
 
 const envName = process.env.CLOUDFLARE_ENV ?? 'production'
 const portWaitTimeoutMs = 5000
@@ -73,10 +74,23 @@ if (isDevCommand && !hasInspectorPortFlag) {
 	commandArgs.push('--inspector-port', resolvedInspectorPort)
 }
 
-const processEnv = {
+const processEnv: NodeJS.ProcessEnv = {
 	...process.env,
 	CLOUDFLARE_ENV: envName,
 	...(resolvedPort ? { PORT: resolvedPort } : {}),
+}
+
+const localRemoteAiEnvError = getLocalRemoteAiEnvError({
+	aiMode: processEnv.AI_MODE,
+	isLocalDev: isDevCommand,
+	gatewayId: processEnv.AI_GATEWAY_ID,
+	accountId: processEnv.CLOUDFLARE_ACCOUNT_ID,
+	apiToken: processEnv.CLOUDFLARE_API_TOKEN,
+})
+
+if (localRemoteAiEnvError) {
+	console.error(localRemoteAiEnvError)
+	process.exit(1)
 }
 
 const localWranglerPath = path.join(

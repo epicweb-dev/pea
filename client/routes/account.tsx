@@ -1,4 +1,5 @@
 import { type Handle } from 'remix/component'
+import { isAdminEmail } from '#shared/admin.ts'
 import { colors, spacing, typography } from '#client/styles/tokens.ts'
 
 type AccountStatus = 'idle' | 'loading' | 'ready' | 'error'
@@ -67,6 +68,11 @@ export function AccountRoute(handle: Handle) {
 					<p css={{ color: colors.textMuted }}>
 						You are signed in to pea.
 					</p>
+					{email && isAdminEmail(email) ? (
+						<a href="/admin/agents" css={{ color: colors.primary }}>
+							Manage chat agents
+						</a>
+					) : null}
 				</header>
 				{status === 'loading' ? (
 					<p css={{ color: colors.textMuted }}>Loading your account…</p>

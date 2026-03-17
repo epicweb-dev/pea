@@ -6,14 +6,14 @@ import {
 	type UIMessage,
 } from 'ai'
 import { createWorkersAI } from 'workers-ai-provider'
-import { type AiMode } from '#shared/chat.ts'
+import { getLocalRemoteAiEnvError } from '#shared/local-remote-ai-env.ts'
+import { fallbackRemoteChatModel, type AiMode } from '#shared/chat.ts'
 import { buildMockAiScenario, type MockAiResponse } from '#shared/mock-ai.ts'
-
-const defaultModel = '@cf/zai-org/glm-4.7-flash'
 
 export type StreamChatReplyInput = {
 	messages: Array<UIMessage>
 	system: string
+	model?: string | null
 	tools: ToolSet
 	toolNames: Array<string>
 	abortSignal?: AbortSignal
@@ -45,18 +45,27 @@ function resolveAiMode(env: Env): AiMode {
 
 function createWorkersAiProvider(env: WorkersAiCredentialsEnv) {
 	const gatewayId = env.AI_GATEWAY_ID?.trim()
+	const accountId = env.CLOUDFLARE_ACCOUNT_ID?.trim()
+	const apiKey = env.CLOUDFLARE_API_TOKEN?.trim()
+	const isLocalWranglerDev = env.WRANGLER_IS_LOCAL_DEV === 'true'
+	const localRemoteAiEnvError = getLocalRemoteAiEnvError({
+		aiMode: env.AI_MODE,
+		isLocalDev: isLocalWranglerDev,
+		gatewayId,
+		accountId,
+		apiToken: apiKey,
+	})
+	if (localRemoteAiEnvError) {
+		throw new Error(localRemoteAiEnvError)
+	}
 	if (!gatewayId) {
 		throw new Error(
 			'AI_GATEWAY_ID is required when AI_MODE is "remote". Configure it in local env or GitHub Actions secrets.',
 		)
 	}
 	const gateway = { gateway: { id: gatewayId } }
-	const accountId = env.CLOUDFLARE_ACCOUNT_ID?.trim()
-	const apiKey = env.CLOUDFLARE_API_TOKEN?.trim()
-	const shouldUseCredentials =
-		env.WRANGLER_IS_LOCAL_DEV === 'true' && accountId && apiKey
 
-	if (shouldUseCredentials) {
+	if (isLocalWranglerDev && accountId && apiKey) {
 		return createWorkersAI({
 			accountId,
 			apiKey,
@@ -74,9 +83,10 @@ function createRemoteAiRuntime(env: WorkersAiCredentialsEnv): AiRuntime {
 	return {
 		async streamChatReply(input) {
 			const workersai = createWorkersAiProvider(env)
+			const model = input.model?.trim() || env.AI_MODEL || fallbackRemoteChatModel
 
 			const result = streamText({
-				model: workersai(env.AI_MODEL ?? defaultModel),
+				model: workersai(model),
 				system: input.system,
 				messages: await convertToModelMessages(input.messages),
 				tools: input.tools,

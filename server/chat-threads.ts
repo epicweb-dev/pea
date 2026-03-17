@@ -1,5 +1,6 @@
 import { chatThreadsTable, createDb } from '#worker/db.ts'
 import { type ChatThreadSummary } from '#shared/chat.ts'
+import { createAgentsStore, defaultManagedChatAgentId } from './agents.ts'
 
 function toIsoTimestamp(date = new Date()) {
 	return date.toISOString()
@@ -16,6 +17,7 @@ function buildThreadTitleFallback(threadId: string) {
 
 function toThreadSummary(record: {
 	id: string
+	agent_id?: string | null
 	title: string
 	last_message_preview: string
 	message_count: number
@@ -26,6 +28,7 @@ function toThreadSummary(record: {
 	const title = record.title.trim()
 	return {
 		id: record.id,
+		agentId: record.agent_id ?? null,
 		title: title || buildThreadTitleFallback(record.id),
 		lastMessagePreview: normalizePreview(record.last_message_preview) || null,
 		messageCount: record.message_count,
@@ -67,6 +70,7 @@ function normalizeCursor(cursor: string | null | undefined) {
 
 export function createChatThreadsStore(db: D1Database) {
 	const database = createDb(db)
+	const agentsStore = createAgentsStore(db)
 
 	return {
 		async listForUser(
@@ -113,6 +117,7 @@ export function createChatThreadsStore(db: D1Database) {
 					`
 						SELECT
 							id,
+							agent_id,
 							title,
 							last_message_preview,
 							message_count,
@@ -132,6 +137,7 @@ export function createChatThreadsStore(db: D1Database) {
 					(result) =>
 						result.results as Array<{
 							id: string
+							agent_id?: string | null
 							title: string
 							last_message_preview: string
 							message_count: number
@@ -150,12 +156,14 @@ export function createChatThreadsStore(db: D1Database) {
 				totalCount,
 			}
 		},
-		async createForUser(userId: number) {
+		async createForUser(userId: number, agentId?: string | null) {
+			const fallbackAgent = await agentsStore.getDefault()
 			const record = await database.create(
 				chatThreadsTable,
 				{
 					id: crypto.randomUUID(),
 					user_id: userId,
+					agent_id: agentId ?? fallbackAgent?.id ?? defaultManagedChatAgentId,
 					title: buildInitialTitle(),
 					last_message_preview: '',
 					message_count: 0,

@@ -88,7 +88,7 @@ export function App(handle: Handle) {
 		return (
 			<main
 				css={{
-					maxWidth: isChatLayout ? 'none' : '52rem',
+					maxWidth: isChatLayout ? 'none' : '72rem',
 					width: '100%',
 					margin: isChatLayout ? 0 : '0 auto',
 					padding: isChatLayout

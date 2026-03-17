@@ -1,6 +1,7 @@
 import { type BuildAction } from 'remix/fetch-router'
 import { readAuthenticatedAppUser } from '#server/authenticated-user.ts'
 import { type routes } from '#server/routes.ts'
+import { createAgentsStore } from '#server/agents.ts'
 import { createChatThreadsStore } from '#server/chat-threads.ts'
 import { type AppEnv } from '#types/env-schema.ts'
 
@@ -17,6 +18,7 @@ function jsonResponse(data: unknown, init?: ResponseInit) {
 
 export function createChatThreadsHandler(appEnv: AppEnv) {
 	const store = createChatThreadsStore(appEnv.APP_DB)
+	const agentsStore = createAgentsStore(appEnv.APP_DB)
 
 	return {
 		middleware: [],
@@ -55,7 +57,23 @@ export function createChatThreadsHandler(appEnv: AppEnv) {
 				return jsonResponse({ ok: true, ...page })
 			}
 
-			const thread = await store.createForUser(user.userId)
+			let requestedAgentId: string | null = null
+			const contentType = request.headers.get('Content-Type') ?? ''
+			if (contentType.includes('application/json')) {
+				const body = (await request.json().catch(() => null)) as
+					| { agentId?: unknown }
+					| null
+				requestedAgentId =
+					typeof body?.agentId === 'string' ? body.agentId.trim() || null : null
+			}
+
+			const agent = requestedAgentId
+				? await agentsStore.getAvailableById(requestedAgentId)
+				: await agentsStore.getDefault()
+			const thread = await store.createForUser(
+				user.userId,
+				agent?.id ?? requestedAgentId,
+			)
 			return jsonResponse({ ok: true, thread }, { status: 201 })
 		},
 	} satisfies BuildAction<

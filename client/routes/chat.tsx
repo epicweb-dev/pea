@@ -40,6 +40,12 @@ function getSelectedThreadIdFromLocation() {
 	return threadId || null
 }
 
+function getAgentIdFromLocation() {
+	if (typeof window === 'undefined') return null
+	const agentId = new URL(window.location.href).searchParams.get('agentId')?.trim()
+	return agentId || null
+}
+
 function buildThreadHref(threadId: string) {
 	return `/chat/${threadId}`
 }
@@ -159,10 +165,14 @@ async function fetchThreadById(threadId: string, signal?: AbortSignal) {
 	return payload.thread
 }
 
-async function createThread() {
+async function createThread(input?: { agentId?: string | null }) {
 	const response = await fetch('/chat-threads', {
 		method: 'POST',
 		credentials: 'include',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({
+			agentId: input?.agentId ?? null,
+		}),
 	})
 	const payload = (await response.json().catch(() => null)) as {
 		ok?: boolean
@@ -648,7 +658,18 @@ export function ChatRoute(handle: Handle) {
 		syncInFlight = true
 		try {
 			const locationThreadId = getSelectedThreadIdFromLocation()
+			const requestedAgentId = getAgentIdFromLocation()
 			const threads = getThreads()
+			if (!locationThreadId && requestedAgentId) {
+				activeClient?.close()
+				activeClient = null
+				activeThreadId = null
+				resetChatSnapshot()
+				disconnectedIndicator.reset()
+				setMessageScrollFades(false, false)
+				update()
+				return
+			}
 			if (threads.length === 0) {
 				activeClient?.close()
 				activeClient = null
@@ -755,7 +776,9 @@ export function ChatRoute(handle: Handle) {
 	})
 
 	async function createAndSelectThread() {
-		const thread = await createThread()
+		const thread = await createThread({
+			agentId: getAgentIdFromLocation(),
+		})
 		navigate(buildThreadHref(thread.id))
 		await refreshThreads()
 		await connectThread(thread.id)
@@ -871,7 +894,9 @@ export function ChatRoute(handle: Handle) {
 			? (threads.find((thread) => thread.id === activeThreadId) ?? null)
 			: null
 		const showEmptyStateComposer =
-			!activeThread && threads.length === 0 && threadStatus !== 'error'
+			!activeThread &&
+			threadStatus !== 'error' &&
+			(threads.length === 0 || Boolean(getAgentIdFromLocation()))
 
 		return (
 			<section
