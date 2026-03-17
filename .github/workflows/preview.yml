@@ -266,6 +266,7 @@ jobs:
         run: |
           set -euo pipefail
           bun tools/seed-test-data.ts --remote --config "$WRANGLER_CONFIG" --email kody@kcd.dev --password kodylovesyou
+          bun tools/seed-test-data.ts --remote --config "$WRANGLER_CONFIG" --email me@kentcdodds.com --password iliketwix
 
       - name: 🩺 Healthcheck (preview)
         shell: bash

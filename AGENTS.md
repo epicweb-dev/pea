@@ -40,8 +40,12 @@ See [.cursor/CLOUD.md](./.cursor/CLOUD.md) for the full quick-reference table.
   `openssl rand -hex 32`).
 - **Mock servers auto-start**: `bun run dev` automatically starts mock Resend
   (email) and mock AI workers. No external services or Docker needed.
-- **Seed test account** before testing login flows:
-  `bun run migrate:local && bun tools/seed-test-data.ts --local`
-  (email: `kody@kcd.dev`, password: `kodylovesyou`).
+- **Seed test accounts** before testing login flows:
+  - Regular user: `bun run migrate:local && bun tools/seed-test-data.ts --local`
+    (email: `kody@kcd.dev`, password: `kodylovesyou`).
+  - Admin user:
+    `bun tools/seed-test-data.ts --local --email me@kentcdodds.com --password iliketwix`
+    (email: `me@kentcdodds.com`, password: `iliketwix`). Admin status is
+    determined by email match in `shared/admin.ts`.
 - **No git hooks or pre-commit** checks are configured. Run `bun run validate`
   manually before pushing.
