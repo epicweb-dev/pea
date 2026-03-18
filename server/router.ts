@@ -51,7 +51,10 @@ export function createAppRouter(appEnv: AppEnv) {
 	router.map(routes.adminAgentsCreate, adminAgentsHandler)
 	router.map(routes.adminAgentsUpdate, createUpdateAdminAgentHandler(appEnv))
 	router.map(routes.adminAgentsDelete, createDeleteAdminAgentHandler(appEnv))
-	router.map(routes.adminAgentsDefault, createSetDefaultAdminAgentHandler(appEnv))
+	router.map(
+		routes.adminAgentsDefault,
+		createSetDefaultAdminAgentHandler(appEnv),
+	)
 	router.map(routes.chatThreads, chatThreadsHandler)
 	router.map(routes.chatThreadsCreate, chatThreadsHandler)
 	router.map(routes.chatThreadsUpdate, createUpdateChatThreadHandler(appEnv))

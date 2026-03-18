@@ -1,6 +1,12 @@
 import { type Handle } from 'remix/component'
 import { createNotifications } from '#client/notifications.tsx'
-import { colors, radius, shadows, spacing, typography } from '#client/styles/tokens.ts'
+import {
+	colors,
+	radius,
+	shadows,
+	spacing,
+	typography,
+} from '#client/styles/tokens.ts'
 import {
 	chatAgentModelPresets,
 	chatAgentModelDividerValue,
@@ -51,7 +57,9 @@ async function createAgent(input: {
 		credentials: 'include',
 		body: JSON.stringify(input),
 	})
-	const payload = (await response.json().catch(() => null)) as AgentMutationResponse
+	const payload = (await response
+		.json()
+		.catch(() => null)) as AgentMutationResponse
 	if (!response.ok || !payload?.ok || !('agent' in payload) || !payload.agent) {
 		throw new Error(payload?.error || 'Unable to create agent.')
 	}
@@ -72,7 +80,9 @@ async function updateAgent(input: {
 		credentials: 'include',
 		body: JSON.stringify(input),
 	})
-	const payload = (await response.json().catch(() => null)) as AgentMutationResponse
+	const payload = (await response
+		.json()
+		.catch(() => null)) as AgentMutationResponse
 	if (!response.ok || !payload?.ok || !('agent' in payload) || !payload.agent) {
 		throw new Error(payload?.error || 'Unable to update agent.')
 	}
@@ -102,7 +112,9 @@ async function setDefaultAgent(agentId: string) {
 		credentials: 'include',
 		body: JSON.stringify({ agentId }),
 	})
-	const payload = (await response.json().catch(() => null)) as AgentMutationResponse
+	const payload = (await response
+		.json()
+		.catch(() => null)) as AgentMutationResponse
 	if (!response.ok || !payload?.ok || !('agent' in payload) || !payload.agent) {
 		throw new Error(payload?.error || 'Unable to update the default agent.')
 	}
@@ -128,8 +140,8 @@ const recommendedChatAgentModelPresetValueSet = new Set<string>(
 	recommendedChatAgentModelPresetValues,
 )
 
-const recommendedChatAgentModelPresets = chatAgentModelPresets.filter((preset) =>
-	recommendedChatAgentModelPresetValueSet.has(preset.value),
+const recommendedChatAgentModelPresets = chatAgentModelPresets.filter(
+	(preset) => recommendedChatAgentModelPresetValueSet.has(preset.value),
 )
 
 const additionalChatAgentModelPresets = chatAgentModelPresets.filter(
@@ -146,7 +158,7 @@ export function AdminAgentsRoute(handle: Handle) {
 
 	function getSelectedAgent() {
 		return selectedAgentId
-			? agents.find((agent) => agent.id === selectedAgentId) ?? null
+			? (agents.find((agent) => agent.id === selectedAgentId) ?? null)
 			: null
 	}
 
@@ -160,7 +172,7 @@ export function AdminAgentsRoute(handle: Handle) {
 					customModel: agent.customModel ?? '',
 					isActive: agent.isActive,
 					makeDefault: false,
-			  }
+				}
 			: createEmptyDraft()
 	}
 
@@ -168,19 +180,23 @@ export function AdminAgentsRoute(handle: Handle) {
 		handle.update()
 	}
 
-	async function loadAgents(signal: AbortSignal, preferredAgentId?: string | null) {
+	async function loadAgents(
+		signal: AbortSignal,
+		preferredAgentId?: string | null,
+	) {
 		try {
 			const payload = await fetchAgents(signal)
 			const nextAgents = payload.agents
 			agents = nextAgents
 			environmentDefaultModel = payload.environmentDefaultModel
 			const nextSelectedAgentId =
-				preferredAgentId && nextAgents.some((agent) => agent.id === preferredAgentId)
+				preferredAgentId &&
+				nextAgents.some((agent) => agent.id === preferredAgentId)
 					? preferredAgentId
 					: selectedAgentId &&
 						  nextAgents.some((agent) => agent.id === selectedAgentId)
 						? selectedAgentId
-						: nextAgents[0]?.id ?? null
+						: (nextAgents[0]?.id ?? null)
 			selectedAgentId = nextSelectedAgentId
 			syncDraftFromSelectedAgent()
 			status = 'ready'
@@ -270,10 +286,7 @@ export function AdminAgentsRoute(handle: Handle) {
 		update()
 	}
 
-	function handleCheckboxInput(
-		key: 'isActive' | 'makeDefault',
-		event: Event,
-	) {
+	function handleCheckboxInput(key: 'isActive' | 'makeDefault', event: Event) {
 		if (!(event.currentTarget instanceof HTMLInputElement)) return
 		draft = { ...draft, [key]: event.currentTarget.checked }
 		update()
@@ -303,7 +316,7 @@ export function AdminAgentsRoute(handle: Handle) {
 						modelPreset: draft.modelPreset,
 						customModel: draft.customModel,
 						isActive: draft.isActive,
-				  })
+					})
 				: await createAgent({
 						name: draft.name,
 						systemPrompt: draft.systemPrompt,
@@ -311,7 +324,7 @@ export function AdminAgentsRoute(handle: Handle) {
 						customModel: draft.customModel,
 						isActive: draft.isActive,
 						makeDefault: draft.makeDefault,
-				  })
+					})
 
 			await loadAgents(new AbortController().signal, savedAgent.id)
 			notifications.showSuccess(
@@ -399,7 +412,9 @@ export function AdminAgentsRoute(handle: Handle) {
 							Create new agent
 						</button>
 						{status === 'loading' ? (
-							<p css={{ margin: 0, color: colors.textMuted }}>Loading agents…</p>
+							<p css={{ margin: 0, color: colors.textMuted }}>
+								Loading agents…
+							</p>
 						) : null}
 						{agents.map((agent) => {
 							const isSelected = agent.id === selectedAgentId
@@ -448,7 +463,10 @@ export function AdminAgentsRoute(handle: Handle) {
 									>
 										<a
 											href={getTestChatHref(agent.id)}
-											css={{ color: colors.primary, fontSize: typography.fontSize.sm }}
+											css={{
+												color: colors.primary,
+												fontSize: typography.fontSize.sm,
+											}}
 										>
 											Test in chat
 										</a>
@@ -574,7 +592,9 @@ export function AdminAgentsRoute(handle: Handle) {
 							<textarea
 								value={draft.systemPrompt}
 								rows={12}
-								on={{ input: (event) => handleTextInput('systemPrompt', event) }}
+								on={{
+									input: (event) => handleTextInput('systemPrompt', event),
+								}}
 								css={{
 									padding: spacing.sm,
 									borderRadius: radius.md,
@@ -585,11 +605,15 @@ export function AdminAgentsRoute(handle: Handle) {
 								}}
 							/>
 						</label>
-						<label css={{ display: 'flex', gap: spacing.sm, alignItems: 'center' }}>
+						<label
+							css={{ display: 'flex', gap: spacing.sm, alignItems: 'center' }}
+						>
 							<input
 								type="checkbox"
 								checked={draft.isActive}
-								on={{ change: (event) => handleCheckboxInput('isActive', event) }}
+								on={{
+									change: (event) => handleCheckboxInput('isActive', event),
+								}}
 							/>
 							<span css={{ color: colors.text }}>Agent is active</span>
 						</label>
@@ -601,10 +625,13 @@ export function AdminAgentsRoute(handle: Handle) {
 									type="checkbox"
 									checked={draft.makeDefault}
 									on={{
-										change: (event) => handleCheckboxInput('makeDefault', event),
+										change: (event) =>
+											handleCheckboxInput('makeDefault', event),
 									}}
 								/>
-								<span css={{ color: colors.text }}>Make this the default agent</span>
+								<span css={{ color: colors.text }}>
+									Make this the default agent
+								</span>
 							</label>
 						)}
 						<div css={{ display: 'flex', gap: spacing.sm }}>

@@ -1,13 +1,19 @@
 import {
 	convertToModelMessages,
-	generateText,
+	generateObject,
+	streamText,
 	type ToolSet,
 	type UIMessage,
 } from 'ai'
 import { createWorkersAI } from 'workers-ai-provider'
+import { z } from 'zod'
 import { getLocalRemoteAiEnvError } from '#shared/local-remote-ai-env.ts'
 import { fallbackRemoteChatModel, type AiMode } from '#shared/chat.ts'
 import { buildMockAiScenario, type MockAiResponse } from '#shared/mock-ai.ts'
+import {
+	scoreAgentsForTurn,
+	type ThreadAgentConfig,
+} from './chat-agent-turn-selection.ts'
 
 export type StreamChatReplyInput = {
 	messages: Array<UIMessage>
@@ -16,12 +22,23 @@ export type StreamChatReplyInput = {
 	tools: ToolSet
 	toolNames: Array<string>
 	abortSignal?: AbortSignal
+	onTextChunk?: (chunk: string) => PromiseLike<void> | void
 }
 
 export type AiRuntimeResult = MockAiResponse
 
+export type ResponderSelection = {
+	agentId: string | null
+	rationale: string
+}
+
 export type AiRuntime = {
-	generateChatReply(input: StreamChatReplyInput): Promise<AiRuntimeResult>
+	streamChatReply(input: StreamChatReplyInput): Promise<AiRuntimeResult>
+	selectResponder(input: {
+		messages: Array<UIMessage>
+		agents: Array<ThreadAgentConfig>
+		abortSignal?: AbortSignal
+	}): Promise<ResponderSelection>
 }
 
 type AIEnabledEnv = Env & {
@@ -75,22 +92,97 @@ function createWorkersAiProvider(env: WorkersAiCredentialsEnv) {
 	})
 }
 
+function getTextParts(message: UIMessage) {
+	return message.parts
+		.filter(
+			(
+				part,
+			): part is Extract<(typeof message.parts)[number], { type: 'text' }> =>
+				part.type === 'text',
+		)
+		.map((part) => part.text)
+}
+
+function formatConversationForArbitration(messages: Array<UIMessage>) {
+	return messages
+		.slice(-10)
+		.map((message) => {
+			const text = getTextParts(message).join('\n').trim()
+			if (!text) return null
+			if (message.role === 'user') {
+				return `User: ${text}`
+			}
+			const metadata =
+				message.metadata && typeof message.metadata === 'object'
+					? (message.metadata as { agentName?: unknown })
+					: null
+			const speakerName =
+				metadata && typeof metadata.agentName === 'string'
+					? metadata.agentName.trim() || 'Assistant'
+					: 'Assistant'
+			return `${speakerName}: ${text}`
+		})
+		.filter(Boolean)
+		.join('\n')
+}
+
+function buildResponderArbitrationPrompt(input: {
+	messages: Array<UIMessage>
+	agents: Array<ThreadAgentConfig>
+}) {
+	const latestMessage = input.messages.at(-1)
+	const formattedMessages = formatConversationForArbitration(input.messages)
+	const agentRoster = input.agents
+		.map(
+			(agent) =>
+				`- ${agent.id}: ${agent.name}\n  Focus: ${agent.systemPrompt.trim()}`,
+		)
+		.join('\n')
+	return [
+		'Pick which single agent, if any, should respond next in this shared conversation.',
+		'Return null if no agent should reply.',
+		'The UI already labels agent messages, so do not choose based on who should prepend their name.',
+		'Prefer the agent who is most clearly addressed or can add the most useful distinct value.',
+		'When the user is inviting another participant into the conversation, prefer someone other than the agent who just spoke when appropriate.',
+		'Choose at most one agent.',
+		'',
+		`Latest message role: ${latestMessage?.role ?? 'unknown'}`,
+		'',
+		'Available agents:',
+		agentRoster,
+		'',
+		'Recent conversation:',
+		formattedMessages || '(empty conversation)',
+	].join('\n')
+}
+
+const responderSelectionSchema = z.object({
+	agentId: z.string().nullable(),
+	rationale: z.string().default(''),
+})
+
 function createRemoteAiRuntime(env: WorkersAiCredentialsEnv): AiRuntime {
 	return {
-		async generateChatReply(input) {
+		async streamChatReply(input) {
 			try {
 				const workersai = createWorkersAiProvider(env)
-				const model = input.model?.trim() || env.AI_MODEL || fallbackRemoteChatModel
-				const result = await generateText({
+				const model =
+					input.model?.trim() || env.AI_MODEL || fallbackRemoteChatModel
+				const result = streamText({
 					model: workersai(model),
 					system: input.system,
 					messages: await convertToModelMessages(input.messages),
 					tools: input.tools,
 					abortSignal: input.abortSignal,
+					onChunk: async ({ chunk }) => {
+						if (chunk.type === 'text-delta') {
+							await input.onTextChunk?.(chunk.text)
+						}
+					},
 				})
 				return {
 					kind: 'text',
-					text: result.text,
+					text: await result.text,
 				}
 			} catch (error) {
 				return {
@@ -102,6 +194,37 @@ function createRemoteAiRuntime(env: WorkersAiCredentialsEnv): AiRuntime {
 				}
 			}
 		},
+		async selectResponder(input) {
+			try {
+				const workersai = createWorkersAiProvider(env)
+				const model = env.AI_MODEL || fallbackRemoteChatModel
+				const result = await generateObject({
+					model: workersai(model),
+					schema: responderSelectionSchema,
+					system:
+						'You are a conversation orchestrator for a multi-agent chat. Output only the structured result.',
+					prompt: buildResponderArbitrationPrompt(input),
+					abortSignal: input.abortSignal,
+				})
+				const validAgentIds = new Set(input.agents.map((agent) => agent.id))
+				const agentId =
+					result.object.agentId && validAgentIds.has(result.object.agentId)
+						? result.object.agentId
+						: null
+				return {
+					agentId,
+					rationale: result.object.rationale.trim(),
+				}
+			} catch (error) {
+				return {
+					agentId: null,
+					rationale:
+						error instanceof Error
+							? error.message
+							: 'Responder arbitration failed.',
+				}
+			}
+		},
 	}
 }
 
@@ -109,7 +232,7 @@ function createMockAiRuntime(env: Env): AiRuntime {
 	const baseUrl = env.AI_MOCK_BASE_URL?.trim()
 
 	return {
-		async generateChatReply(input) {
+		async streamChatReply(input) {
 			if (!baseUrl) {
 				const userMessages = input.messages.filter(
 					(message) => message.role === 'user',
@@ -128,10 +251,20 @@ function createMockAiRuntime(env: Env): AiRuntime {
 						.map((part) => part.text)
 						.join('\n')
 						.trim() ?? ''
-				return buildMockAiScenario({
+				const response = buildMockAiScenario({
 					lastUserMessage,
 					toolNames: input.toolNames,
 				}).response
+				if (response.kind === 'text') {
+					const chunks =
+						response.chunks && response.chunks.length > 0
+							? response.chunks
+							: [response.text]
+					for (const chunk of chunks) {
+						await input.onTextChunk?.(chunk)
+					}
+				}
+				return response
 			}
 
 			const url = new URL('/chat', baseUrl)
@@ -160,7 +293,28 @@ function createMockAiRuntime(env: Env): AiRuntime {
 				)
 			}
 
-			return (await response.json()) as MockAiResponse
+			const result = (await response.json()) as MockAiResponse
+			if (result.kind === 'text') {
+				const chunks =
+					result.chunks && result.chunks.length > 0
+						? result.chunks
+						: [result.text]
+				for (const chunk of chunks) {
+					await input.onTextChunk?.(chunk)
+				}
+			}
+			return result
+		},
+		async selectResponder(input) {
+			const scoredCandidates = scoreAgentsForTurn({
+				selectedAgents: input.agents,
+				messages: input.messages,
+			})
+			const selectedCandidate = scoredCandidates[0]
+			return {
+				agentId: selectedCandidate?.agent.id ?? null,
+				rationale: selectedCandidate?.rationale ?? 'mock-fallback',
+			}
 		},
 	}
 }

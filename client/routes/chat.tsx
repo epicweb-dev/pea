@@ -75,11 +75,23 @@ const THREAD_LIST_SCROLL_THRESHOLD_PX = 96
 const MESSAGE_SCROLL_FADE_HEIGHT = '2.5rem'
 const THREADS_PAGE_LIMIT = 100
 const THREAD_LIST_PREFETCH_MAX_PAGES = 100
+const deletedThreadBroadcastStorageKey = 'pea.chat.deleted-thread'
 
 function truncatePreview(text: string) {
 	const normalized = text.trim()
 	if (!normalized) return ''
 	return normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized
+}
+
+function broadcastDeletedThread(threadId: string) {
+	if (typeof window === 'undefined') return
+	window.localStorage.setItem(
+		deletedThreadBroadcastStorageKey,
+		JSON.stringify({
+			threadId,
+			timestamp: Date.now(),
+		}),
+	)
 }
 
 function normalizeSelectedAgentIds(agentIds?: ReadonlyArray<string> | null) {
@@ -97,6 +109,7 @@ function createInitialSnapshot(): ChatClientSnapshot {
 		messages: [],
 		totalMessageCount: 0,
 		streamingText: '',
+		streamingMessageMetadata: null,
 		isStreaming: false,
 		hasOlderMessages: false,
 		isLoadingMessages: false,
@@ -139,6 +152,10 @@ function getAssistantSpeakerName(
 			? message.metadata.agentName.trim()
 			: ''
 	return agentName || 'Assistant'
+}
+
+function getStreamingSpeakerName(snapshot: ChatClientSnapshot) {
+	return snapshot.streamingMessageMetadata?.agentName?.trim() || 'Assistant'
 }
 
 async function fetchThreads(input?: {
@@ -553,6 +570,15 @@ export function ChatRoute(handle: Handle) {
 		chatSnapshot = createInitialSnapshot()
 	}
 
+	function resetActiveThreadConnection() {
+		activeClient?.close()
+		activeClient = null
+		activeThreadId = null
+		resetChatSnapshot()
+		disconnectedIndicator.reset()
+		setMessageScrollFades(false, false)
+	}
+
 	function getThreads() {
 		return threadListSnapshot.items
 	}
@@ -624,6 +650,27 @@ export function ChatRoute(handle: Handle) {
 			)
 			return [nextThread, ...remainingThreads]
 		})
+	}
+
+	function handleDeletedThread(threadId: string) {
+		deleteThreadChecks.delete(threadId)
+		updateThreadListFromSnapshot((threads) =>
+			threads.filter((thread) => thread.id !== threadId),
+		)
+		scheduleThreadListScrollFadeSync()
+		if (activeThreadId !== threadId) {
+			update()
+			return
+		}
+		resetActiveThreadConnection()
+		const nextThread = getThreads()[0]
+		if (nextThread) {
+			navigate(buildThreadHref(nextThread.id))
+			void connectThread(nextThread.id)
+			return
+		}
+		navigate('/chat')
+		update()
 	}
 
 	function syncDisconnectedIndicator() {
@@ -831,6 +878,13 @@ export function ChatRoute(handle: Handle) {
 	}
 
 	async function syncActiveThreadFromLocation() {
+		if (typeof window === 'undefined') return
+		// Navigating to /, /account, etc. still dispatches while ChatRoute is mounted.
+		// Without this guard we "fix" a missing thread id by navigating back to /chat/:id.
+		const pathname = window.location.pathname
+		if (pathname !== '/chat' && !pathname.startsWith('/chat/')) {
+			return
+		}
 		if (threadStatus !== 'ready' || syncInFlight) return
 		syncInFlight = true
 		try {
@@ -1063,6 +1117,35 @@ export function ChatRoute(handle: Handle) {
 		)
 	})
 
+	handle.queueTask(() => {
+		if (typeof window === 'undefined') return
+		const handleStorage = (event: StorageEvent) => {
+			if (
+				event.key !== deletedThreadBroadcastStorageKey ||
+				typeof event.newValue !== 'string'
+			) {
+				return
+			}
+			try {
+				const payload = JSON.parse(event.newValue) as { threadId?: unknown }
+				const threadId =
+					typeof payload.threadId === 'string' ? payload.threadId.trim() : ''
+				if (!threadId) return
+				handleDeletedThread(threadId)
+			} catch {
+				// Ignore malformed cross-tab storage events.
+			}
+		}
+		window.addEventListener('storage', handleStorage)
+		handle.signal.addEventListener(
+			'abort',
+			() => {
+				window.removeEventListener('storage', handleStorage)
+			},
+			{ once: true },
+		)
+	})
+
 	function ensureChatDataBootstrap() {
 		if (chatDataBootstrapPromise) return
 		chatDataBootstrapPromise = bootstrapChatData(handle.signal).finally(() => {
@@ -1098,23 +1181,9 @@ export function ChatRoute(handle: Handle) {
 		update()
 		try {
 			await deleteThread(threadId)
-			deleteThreadChecks.delete(threadId)
-			if (activeThreadId === threadId) {
-				activeClient?.close()
-				activeClient = null
-				activeThreadId = null
-				resetChatSnapshot()
-				disconnectedIndicator.reset()
-			}
+			broadcastDeletedThread(threadId)
+			handleDeletedThread(threadId)
 			await refreshThreads()
-			scheduleThreadListScrollFadeSync()
-			const nextThread = getThreads()[0]
-			if (nextThread) {
-				navigate(buildThreadHref(nextThread.id))
-				await connectThread(nextThread.id)
-			} else {
-				navigate('/chat')
-			}
 		} catch (error) {
 			actionError =
 				error instanceof Error ? error.message : 'Unable to delete thread.'
@@ -1830,7 +1899,7 @@ export function ChatRoute(handle: Handle) {
 												}}
 											>
 												<strong css={{ color: colors.text }}>
-													Selected agents
+													{getStreamingSpeakerName(chatSnapshot)}
 												</strong>
 												<p
 													css={{

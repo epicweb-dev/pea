@@ -6,12 +6,14 @@ import {
 import { type UIMessage } from 'ai'
 import { AgentClient } from 'agents/client'
 import { createInfiniteList } from '#client/infinite-list.ts'
+import { type ChatAssistantMessageMetadata } from '#shared/chat.ts'
 import { chatAgentBasePath } from '#shared/chat-routes.ts'
 
 export type ChatClientSnapshot = {
 	messages: Array<UIMessage>
 	totalMessageCount: number
 	streamingText: string
+	streamingMessageMetadata: ChatAssistantMessageMetadata | null
 	isStreaming: boolean
 	hasOlderMessages: boolean
 	isLoadingMessages: boolean
@@ -80,6 +82,7 @@ export class ChatClient {
 		messages: [],
 		totalMessageCount: 0,
 		streamingText: '',
+		streamingMessageMetadata: null,
 		isStreaming: false,
 		hasOlderMessages: false,
 		isLoadingMessages: false,
@@ -132,6 +135,14 @@ export class ChatClient {
 			waiter.reject(new Error(message))
 		}
 		this.connectionWaiters.clear()
+	}
+
+	private markConnected() {
+		this.connectionError = null
+		if (!this.snapshot.connected) {
+			this.syncSnapshot({ connected: true })
+		}
+		this.resolveConnectionWaiters()
 	}
 
 	private async fetchMessagesPage(input?: {
@@ -273,9 +284,7 @@ export class ChatClient {
 		this.socket = socket
 
 		socket.addEventListener('open', () => {
-			this.connectionError = null
-			this.syncSnapshot({ connected: true })
-			this.resolveConnectionWaiters()
+			this.markConnected()
 			socket.send(
 				JSON.stringify({ type: MessageType.CF_AGENT_STREAM_RESUME_REQUEST }),
 			)
@@ -302,6 +311,7 @@ export class ChatClient {
 		})
 
 		socket.addEventListener('message', (event) => {
+			this.markConnected()
 			let data: unknown = null
 			try {
 				data = JSON.parse(String(event.data))
@@ -329,6 +339,7 @@ export class ChatClient {
 					})
 					this.syncSnapshot({
 						streamingText: '',
+						streamingMessageMetadata: null,
 						isStreaming: false,
 					})
 					return
@@ -351,7 +362,11 @@ export class ChatClient {
 						this.activeRequestId = null
 						this.optimisticUserMessage = null
 						this.actionError = message.body || 'Chat generation failed.'
-						this.syncSnapshot({ isStreaming: false, streamingText: '' })
+						this.syncSnapshot({
+							isStreaming: false,
+							streamingText: '',
+							streamingMessageMetadata: null,
+						})
 						return
 					}
 
@@ -361,9 +376,19 @@ export class ChatClient {
 								type?: string
 								delta?: string
 								value?: string
+								messageMetadata?: ChatAssistantMessageMetadata | null
+								errorText?: string
 							}
-							if (chunk.type === 'text-start') {
-								this.syncSnapshot({ streamingText: '', isStreaming: true })
+							if (chunk.type === 'start') {
+								this.syncSnapshot({
+									streamingMessageMetadata: chunk.messageMetadata ?? null,
+									isStreaming: true,
+								})
+							} else if (chunk.type === 'text-start') {
+								this.syncSnapshot({
+									streamingText: '',
+									isStreaming: true,
+								})
 							} else if (chunk.type === 'text-delta' && chunk.delta) {
 								this.syncSnapshot({
 									isStreaming: true,
@@ -373,6 +398,21 @@ export class ChatClient {
 								this.syncSnapshot({
 									isStreaming: true,
 									streamingText: `${this.snapshot.streamingText}${chunk.value}`,
+								})
+							} else if (chunk.type === 'finish') {
+								this.syncSnapshot({
+									isStreaming: true,
+									streamingMessageMetadata:
+										chunk.messageMetadata ?? this.snapshot.streamingMessageMetadata,
+								})
+							} else if (chunk.type === 'error' && chunk.errorText) {
+								this.activeRequestId = null
+								this.optimisticUserMessage = null
+								this.actionError = chunk.errorText
+								this.syncSnapshot({
+									isStreaming: false,
+									streamingText: '',
+									streamingMessageMetadata: null,
 								})
 							}
 						} catch {
@@ -384,7 +424,11 @@ export class ChatClient {
 						this.activeRequestId = null
 						this.optimisticUserMessage = null
 						this.actionError = null
-						this.syncSnapshot({ isStreaming: false, streamingText: '' })
+						this.syncSnapshot({
+							isStreaming: false,
+							streamingText: '',
+							streamingMessageMetadata: null,
+						})
 						void this.reloadLoadedMessages().catch((error: unknown) => {
 							this.actionError =
 								error instanceof Error
@@ -415,7 +459,11 @@ export class ChatClient {
 		this.activeRequestId = requestId
 		this.optimisticUserMessage = nextUserMessage
 		this.actionError = null
-		this.syncSnapshot({ streamingText: '', isStreaming: true })
+		this.syncSnapshot({
+			streamingText: '',
+			streamingMessageMetadata: null,
+			isStreaming: true,
+		})
 
 		this.socket.send(
 			JSON.stringify({

@@ -1,5 +1,12 @@
 import { type Handle } from 'remix/component'
-import { colors, radius, shadows, spacing, transitions, typography } from './styles/tokens.ts'
+import {
+	colors,
+	radius,
+	shadows,
+	spacing,
+	transitions,
+	typography,
+} from './styles/tokens.ts'
 
 type NotificationTone = 'success' | 'error' | 'info'
 
@@ -75,9 +82,12 @@ export function createNotifications(handle: Handle) {
 		handle.update()
 		timeoutIds.set(
 			id,
-			globalThis.setTimeout(() => {
-				dismiss(id)
-			}, createNotificationDuration(tone, options)),
+			globalThis.setTimeout(
+				() => {
+					dismiss(id)
+				},
+				createNotificationDuration(tone, options),
+			),
 		)
 	}
 

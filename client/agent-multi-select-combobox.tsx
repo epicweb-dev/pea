@@ -43,7 +43,9 @@ function resolveNextSelectedAgentIds(input: {
 		if (selectedAgentIds.length <= 1) {
 			return selectedAgentIds
 		}
-		return selectedAgentIds.filter((agentId) => agentId !== input.toggledAgentId)
+		return selectedAgentIds.filter(
+			(agentId) => agentId !== input.toggledAgentId,
+		)
 	}
 	return [...selectedAgentIds, input.toggledAgentId]
 }
@@ -111,10 +113,11 @@ export function AgentMultiSelectCombobox(handle: Handle) {
 			selectedAgentNameList.length > 0
 				? selectedAgentNameList.join(', ')
 				: 'No agents selected'
-		const resolvedHighlightedAgentId =
-			filteredAgents.some((agent) => agent.id === highlightedAgentId)
-				? highlightedAgentId
-				: filteredAgents[0]?.id ?? null
+		const resolvedHighlightedAgentId = filteredAgents.some(
+			(agent) => agent.id === highlightedAgentId,
+		)
+			? highlightedAgentId
+			: (filteredAgents[0]?.id ?? null)
 
 		function handlePopoverToggle(event: Event) {
 			if (!(event.currentTarget instanceof HTMLElement)) return
@@ -270,7 +273,9 @@ export function AgentMultiSelectCombobox(handle: Handle) {
 					}}
 				>
 					<div css={{ display: 'grid', gap: spacing.xs }}>
-						<strong css={{ color: colors.text, fontSize: typography.fontSize.sm }}>
+						<strong
+							css={{ color: colors.text, fontSize: typography.fontSize.sm }}
+						>
 							Included agents
 						</strong>
 						<p
@@ -307,7 +312,13 @@ export function AgentMultiSelectCombobox(handle: Handle) {
 						}}
 					/>
 					{props.error ? (
-						<p css={{ margin: 0, color: colors.error, fontSize: typography.fontSize.sm }}>
+						<p
+							css={{
+								margin: 0,
+								color: colors.error,
+								fontSize: typography.fontSize.sm,
+							}}
+						>
 							{props.error}
 						</p>
 					) : null}
@@ -393,9 +404,7 @@ export function AgentMultiSelectCombobox(handle: Handle) {
 												backgroundColor: isSelected
 													? colors.primary
 													: colors.background,
-												color: isSelected
-													? colors.onPrimary
-													: colors.textMuted,
+												color: isSelected ? colors.onPrimary : colors.textMuted,
 												fontSize: typography.fontSize.xs,
 												fontWeight: typography.fontWeight.semibold,
 											}}

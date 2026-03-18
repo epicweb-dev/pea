@@ -143,7 +143,7 @@ test('supports selecting multiple agents before and during a chat', async ({
 	const messages = page.locator('#chat-messages-scroll-container')
 	const firstAssistantMessage = messages.locator('article').nth(1)
 	await expect(firstAssistantMessage).toContainText('alpha agent:')
-	await expect(firstAssistantMessage).toContainText('beta agent:')
+	await expect(firstAssistantMessage).not.toContainText('beta agent:')
 
 	const threadAgentButton = page.getByRole('button', {
 		name: '2 agents in this chat',

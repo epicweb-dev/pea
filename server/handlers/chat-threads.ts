@@ -60,9 +60,10 @@ export function createChatThreadsHandler(appEnv: AppEnv) {
 			let requestedAgentIds: Array<string> = []
 			const contentType = request.headers.get('Content-Type') ?? ''
 			if (contentType.includes('application/json')) {
-				const body = (await request.json().catch(() => null)) as
-					| { agentId?: unknown; agentIds?: unknown }
-					| null
+				const body = (await request.json().catch(() => null)) as {
+					agentId?: unknown
+					agentIds?: unknown
+				} | null
 				if (Array.isArray(body?.agentIds)) {
 					requestedAgentIds = body.agentIds
 						.filter((value): value is string => typeof value === 'string')
@@ -74,10 +75,13 @@ export function createChatThreadsHandler(appEnv: AppEnv) {
 				}
 			}
 			const filteredAgentIds = await Promise.all(
-				requestedAgentIds.map(async (agentId) =>
-					(await agentsStore.getAvailableById(agentId))?.id ?? null,
+				requestedAgentIds.map(
+					async (agentId) =>
+						(await agentsStore.getAvailableById(agentId))?.id ?? null,
 				),
-			).then((ids) => ids.filter((agentId): agentId is string => Boolean(agentId)))
+			).then((ids) =>
+				ids.filter((agentId): agentId is string => Boolean(agentId)),
+			)
 			const thread = await store.createForUser(user.userId, filteredAgentIds)
 			return jsonResponse({ ok: true, thread }, { status: 201 })
 		},
@@ -251,7 +255,11 @@ export function createUpdateChatThreadAgentsHandler(appEnv: AppEnv) {
 				)
 			}
 
-			const thread = await store.updateAgentsForUser(user.userId, threadId, agentIds)
+			const thread = await store.updateAgentsForUser(
+				user.userId,
+				threadId,
+				agentIds,
+			)
 			if (!thread) {
 				return jsonResponse(
 					{ ok: false, error: 'Thread not found.' },

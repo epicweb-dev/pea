@@ -35,7 +35,10 @@ async function requireAdminApiUser(request: Request, env: Env) {
 	if (!isAdminEmail(user.email)) {
 		return {
 			user: null,
-			response: jsonResponse({ ok: false, error: 'Forbidden' }, { status: 403 }),
+			response: jsonResponse(
+				{ ok: false, error: 'Forbidden' },
+				{ status: 403 },
+			),
 		}
 	}
 	return { user, response: null }
@@ -93,16 +96,14 @@ export function createAdminAgentsHandler(appEnv: AppEnv) {
 				})
 			}
 
-			const body = (await request.json().catch(() => null)) as
-				| {
-						name?: unknown
-						systemPrompt?: unknown
-						modelPreset?: unknown
-						customModel?: unknown
-						isActive?: unknown
-						makeDefault?: unknown
-				  }
-				| null
+			const body = (await request.json().catch(() => null)) as {
+				name?: unknown
+				systemPrompt?: unknown
+				modelPreset?: unknown
+				customModel?: unknown
+				isActive?: unknown
+				makeDefault?: unknown
+			} | null
 
 			const name = readOptionalString(body?.name)
 			const systemPrompt = readOptionalString(body?.systemPrompt)
@@ -124,15 +125,17 @@ export function createAdminAgentsHandler(appEnv: AppEnv) {
 				systemPrompt,
 				modelPreset: readOptionalString(body?.modelPreset),
 				customModel: readOptionalString(body?.customModel) || null,
-				isActive: !body || body.isActive === undefined
-					? true
-					: readOptionalBoolean(body.isActive),
+				isActive:
+					!body || body.isActive === undefined
+						? true
+						: readOptionalBoolean(body.isActive),
 				makeDefault: readOptionalBoolean(body?.makeDefault),
 			})
 			return jsonResponse({ ok: true, agent }, { status: 201 })
 		},
 	} satisfies BuildAction<
-		typeof routes.adminAgentsData.method | typeof routes.adminAgentsCreate.method,
+		| typeof routes.adminAgentsData.method
+		| typeof routes.adminAgentsCreate.method,
 		typeof routes.adminAgentsData.pattern
 	>
 }
@@ -146,16 +149,14 @@ export function createUpdateAdminAgentHandler(appEnv: AppEnv) {
 			const { response } = await requireAdminApiUser(request, appEnv as Env)
 			if (response) return response
 
-			const body = (await request.json().catch(() => null)) as
-				| {
-						agentId?: unknown
-						name?: unknown
-						systemPrompt?: unknown
-						modelPreset?: unknown
-						customModel?: unknown
-						isActive?: unknown
-				  }
-				| null
+			const body = (await request.json().catch(() => null)) as {
+				agentId?: unknown
+				name?: unknown
+				systemPrompt?: unknown
+				modelPreset?: unknown
+				customModel?: unknown
+				isActive?: unknown
+			} | null
 			const agentId = readOptionalString(body?.agentId)
 			const name = readOptionalString(body?.name)
 			const systemPrompt = readOptionalString(body?.systemPrompt)
@@ -209,9 +210,9 @@ export function createDeleteAdminAgentHandler(appEnv: AppEnv) {
 			const { response } = await requireAdminApiUser(request, appEnv as Env)
 			if (response) return response
 
-			const body = (await request.json().catch(() => null)) as
-				| { agentId?: unknown }
-				| null
+			const body = (await request.json().catch(() => null)) as {
+				agentId?: unknown
+			} | null
 			const agentId = readOptionalString(body?.agentId)
 			if (!agentId) {
 				return jsonResponse(
@@ -245,9 +246,9 @@ export function createSetDefaultAdminAgentHandler(appEnv: AppEnv) {
 			const { response } = await requireAdminApiUser(request, appEnv as Env)
 			if (response) return response
 
-			const body = (await request.json().catch(() => null)) as
-				| { agentId?: unknown }
-				| null
+			const body = (await request.json().catch(() => null)) as {
+				agentId?: unknown
+			} | null
 			const agentId = readOptionalString(body?.agentId)
 			if (!agentId) {
 				return jsonResponse(

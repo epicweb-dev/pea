@@ -22,6 +22,12 @@ import {
 import { readAuthenticatedAppUser } from '#server/authenticated-user.ts'
 import { createChatThreadsStore } from '#server/chat-threads.ts'
 import { createAiRuntime, type AiRuntimeResult } from './ai-runtime.ts'
+import {
+	getMessageText,
+	isNearDuplicateAssistantReply,
+	selectAgentForTurn,
+	type ThreadAgentConfig,
+} from './chat-agent-turn-selection.ts'
 
 function resolveAgentModel(agent: ManagedChatAgent) {
 	if (agent.customModel?.trim()) return agent.customModel.trim()
@@ -29,13 +35,6 @@ function resolveAgentModel(agent: ManagedChatAgent) {
 		return agent.modelPreset
 	}
 	return null
-}
-
-type ThreadAgentConfig = {
-	id: string
-	name: string
-	systemPrompt: string
-	model: string | null
 }
 
 const noResponseToken = '[[NO_RESPONSE]]'
@@ -86,7 +85,9 @@ function getAssistantMessageMetadata(message: UIMessage) {
 	}
 	return {
 		agentId:
-			typeof metadata.agentId === 'string' ? metadata.agentId.trim() || null : null,
+			typeof metadata.agentId === 'string'
+				? metadata.agentId.trim() || null
+				: null,
 		agentName:
 			typeof metadata.agentName === 'string'
 				? metadata.agentName.trim() || null
@@ -94,15 +95,13 @@ function getAssistantMessageMetadata(message: UIMessage) {
 	} satisfies ChatAssistantMessageMetadata
 }
 
-function buildToolPartSummary(
-	part: {
-		type: string
-		state?: unknown
-		input?: unknown
-		output?: unknown
-		errorText?: unknown
-	},
-) {
+function buildToolPartSummary(part: {
+	type: string
+	state?: unknown
+	input?: unknown
+	output?: unknown
+	errorText?: unknown
+}) {
 	if (!part.type.startsWith('tool-')) return ''
 	const lines = [part.type.replace(/^tool-/, '')]
 	if ('state' in part && typeof part.state === 'string') {
@@ -171,35 +170,66 @@ function createEmptyResponse() {
 	})
 }
 
-function createAssistantTextResponse(text: string) {
+function createAssistantStreamResponse(input: {
+	metadata: ChatAssistantMessageMetadata
+	execute: (writeTextDelta: (delta: string) => Promise<void>) => Promise<{
+		message: UIMessage<ChatAssistantMessageMetadata> | null
+		error: string | null
+	}>
+}) {
 	return createUIMessageStreamResponse({
 		stream: createUIMessageStream<UIMessage<ChatAssistantMessageMetadata>>({
-			execute({ writer }) {
+			execute: async ({ writer }) => {
 				const textPartId = crypto.randomUUID()
-				const metadata = {
-					agentId: null,
-					agentName: 'Selected agents',
-				} satisfies ChatAssistantMessageMetadata
-				writer.write({
-					type: 'start',
-					messageMetadata: metadata,
-				})
-				writer.write({
-					type: 'text-start',
-					id: textPartId,
-				})
-				writer.write({
-					type: 'text-delta',
-					id: textPartId,
-					delta: text,
-				})
+				let didStart = false
+				const ensureStarted = () => {
+					if (didStart) return
+					didStart = true
+					writer.write({
+						type: 'start',
+						messageMetadata: input.metadata,
+					})
+					writer.write({
+						type: 'text-start',
+						id: textPartId,
+					})
+				}
+				const writeTextDelta = async (delta: string) => {
+					if (!delta) return
+					ensureStarted()
+					writer.write({
+						type: 'text-delta',
+						id: textPartId,
+						delta,
+					})
+				}
+				const result = await input.execute(writeTextDelta)
+				if (result.error) {
+					writer.write({
+						type: 'error',
+						errorText: result.error,
+					})
+					return
+				}
+				const text = result.message ? getTextParts(result.message).join('\n').trim() : ''
+				if (!result.message || !text) {
+					return
+				}
+				if (!didStart) {
+					ensureStarted()
+					writer.write({
+						type: 'text-delta',
+						id: textPartId,
+						delta: text,
+					})
+				}
 				writer.write({
 					type: 'text-end',
 					id: textPartId,
 				})
 				writer.write({
 					type: 'finish',
-					messageMetadata: metadata,
+					messageMetadata: input.metadata,
 				})
 			},
 		}),
@@ -329,8 +359,9 @@ function buildManagedAgentSystemPrompt(input: {
 		input.agent.systemPrompt.trim(),
 		'',
 		`You are ${input.agent.name}, one participant in a shared chat with the user.`,
-		'Only respond when the latest message is from the user and you can add distinct, useful value.',
-		'Do not respond to messages from other agents. Do not critique or answer another agent unless the user explicitly asks you to.',
+		'Only respond when the latest message is from the user, or when the latest assistant message clearly invites your input or directly addresses you, and you can add distinct, useful value.',
+		'Do not continue your own previous message, and do not repeat another agent unless you are adding something clearly new.',
+		'Never begin your response with your own name, role, or speaker label. The UI already shows who you are.',
 		`If you should stay silent, reply with exactly ${noResponseToken} and nothing else.`,
 	]
 	if (otherSelectedAgents.length > 0) {
@@ -356,25 +387,18 @@ function buildAssistantMessage(
 	}
 }
 
-function normalizeAgentMatchValue(value: string) {
-	return value
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, ' ')
-		.trim()
+function escapeRegExp(value: string) {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-function buildCombinedAssistantText(
-	messages: Array<UIMessage<ChatAssistantMessageMetadata>>,
-) {
-	return messages
-		.map((message) => {
-			const metadata = getAssistantMessageMetadata(message)
-			const agentName = metadata?.agentName ?? 'Assistant'
-			const text = getTextParts(message).join('\n').trim()
-			return text ? `${agentName}:\n${text}` : agentName
-		})
-		.join('\n\n')
-		.trim()
+function stripLeadingSpeakerLabel(text: string, agentName: string) {
+	const trimmedText = text.trimStart()
+	if (!trimmedText) return ''
+	const labelPattern = new RegExp(
+		`^(?:[^\\p{L}\\p{N}]+\\s*)?${escapeRegExp(agentName)}\\s*:\\s*`,
+		'iu',
+	)
+	return trimmedText.replace(labelPattern, '').trimStart()
 }
 
 export class ChatAgent extends AIChatAgent<Env> {
@@ -460,26 +484,11 @@ export class ChatAgent extends AIChatAgent<Env> {
 		}
 
 		const fallbackAgent = await this.getAgentsStore().getDefault()
-		return [fallbackAgent ? createManagedAgentConfig(fallbackAgent) : createFallbackAgentConfig()]
-	}
-
-	private shouldMockAgentRespond(input: {
-		agent: ThreadAgentConfig
-		selectedAgents: Array<ThreadAgentConfig>
-		latestUserText: string
-	}) {
-		const normalizedUserText = normalizeAgentMatchValue(input.latestUserText)
-		if (!normalizedUserText) return true
-		const mentionedAgents = input.selectedAgents.filter((agent) => {
-			const normalizedName = normalizeAgentMatchValue(agent.name)
-			const normalizedId = normalizeAgentMatchValue(agent.id)
-			return (
-				(normalizedName && normalizedUserText.includes(normalizedName)) ||
-				(normalizedId && normalizedUserText.includes(normalizedId))
-			)
-		})
-		if (mentionedAgents.length === 0) return true
-		return mentionedAgents.some((agent) => agent.id === input.agent.id)
+		return [
+			fallbackAgent
+				? createManagedAgentConfig(fallbackAgent)
+				: createFallbackAgentConfig(),
+		]
 	}
 
 	private async resolveMockToolCallAssistantText(
@@ -529,6 +538,74 @@ export class ChatAgent extends AIChatAgent<Env> {
 			assistantText ||
 			(typeof output === 'string' ? output : JSON.stringify(output, null, 2))
 		)
+	}
+
+	private async generateAssistantMessage(input: {
+		agent: ThreadAgentConfig
+		selectedAgents: Array<ThreadAgentConfig>
+		conversationMessages: Array<UIMessage>
+		aiRuntime: ReturnType<typeof createAiRuntime>
+		tools: ToolSet
+		toolNames: Array<string>
+		abortSignal?: AbortSignal
+		previousAssistantText?: string
+		onTextChunk?: (delta: string) => PromiseLike<void> | void
+	}) {
+		let streamedText = ''
+		const runtimeResult = await input.aiRuntime.streamChatReply({
+			messages: input.conversationMessages,
+			system: buildManagedAgentSystemPrompt({
+				agent: input.agent,
+				selectedAgents: input.selectedAgents,
+			}),
+			model: input.agent.model,
+			tools: input.tools,
+			toolNames: input.toolNames,
+			abortSignal: input.abortSignal,
+			onTextChunk: async (delta) => {
+				if (!delta) return
+				streamedText += delta
+				await input.onTextChunk?.(delta)
+			},
+		})
+
+		if (runtimeResult.kind === 'error') {
+			return {
+				message: null,
+				error: runtimeResult.message,
+			}
+		}
+
+		const assistantText =
+			runtimeResult.kind === 'tool-call'
+				? await this.resolveMockToolCallAssistantText(runtimeResult)
+				: runtimeResult.text.trim() || streamedText.trim()
+		const sanitizedAssistantText = stripLeadingSpeakerLabel(
+			assistantText,
+			input.agent.name,
+		)
+		if (!sanitizedAssistantText || sanitizedAssistantText === noResponseToken) {
+			return {
+				message: null,
+				error: null,
+			}
+		}
+		if (
+			input.previousAssistantText &&
+			isNearDuplicateAssistantReply({
+				nextText: sanitizedAssistantText,
+				previousText: input.previousAssistantText,
+			})
+		) {
+			return {
+				message: null,
+				error: null,
+			}
+		}
+		return {
+			message: buildAssistantMessage(input.agent, sanitizedAssistantText),
+			error: null,
+		}
 	}
 
 	getMessagePage(input?: {
@@ -658,63 +735,46 @@ export class ChatAgent extends AIChatAgent<Env> {
 		const tools = this.mcp.getAITools()
 		const toolNames = this.mcp.listTools().map((tool) => tool.name)
 		const selectedAgents = await this.getSelectedAgentsForCurrentThread()
-		const latestUserText = getLatestUserMessageText(this.messages)
 		const conversationMessages = buildConversationMessagesForAgent(this.messages)
-		const assistantMessages: Array<UIMessage<ChatAssistantMessageMetadata>> = []
-		const generationErrors: Array<string> = []
-
-		for (const agent of selectedAgents) {
-			if (
-				this.env.AI_MODE !== 'remote' &&
-				!this.shouldMockAgentRespond({
-					agent,
-					selectedAgents,
-					latestUserText,
-				})
-			) {
-				continue
-			}
-
-			const runtimeResult = await aiRuntime.generateChatReply({
-				messages: conversationMessages,
-				system: buildManagedAgentSystemPrompt({
-					agent,
-					selectedAgents,
-				}),
-				model: agent.model,
-				tools,
-				toolNames,
-				abortSignal: options?.abortSignal,
-			})
-
-			if (runtimeResult.kind === 'error') {
-				generationErrors.push(runtimeResult.message)
-				continue
-			}
-
-			const assistantText =
-				runtimeResult.kind === 'tool-call'
-					? await this.resolveMockToolCallAssistantText(runtimeResult)
-					: runtimeResult.text.trim()
-			if (!assistantText || assistantText === noResponseToken) {
-				continue
-			}
-
-			assistantMessages.push(buildAssistantMessage(agent, assistantText))
-		}
-
-		const combinedAssistantText = buildCombinedAssistantText(assistantMessages)
-		await this.syncThreadMetadata({
-			assistantText: assistantMessages.at(-1)
-				? getTextParts(assistantMessages.at(-1)!).join('\n').trim()
-				: undefined,
-			messageCountOffset: combinedAssistantText ? 1 : 0,
+		const workingConversationMessages = [...conversationMessages]
+		const selectedAgent = selectAgentForTurn({
+			selectedAgents,
+			messages: workingConversationMessages,
 		})
-		if (combinedAssistantText) {
-			return createAssistantTextResponse(combinedAssistantText)
-		}
-		if (generationErrors.length > 0) {
-			return createErrorResponse(generationErrors[0] ?? 'Chat generation failed.')
+		if (selectedAgent) {
+			const metadata = {
+				agentId: selectedAgent.id,
+				agentName: selectedAgent.name,
+			} satisfies ChatAssistantMessageMetadata
+			return createAssistantStreamResponse({
+				metadata,
+				execute: async (writeTextDelta) => {
+					const result = await this.generateAssistantMessage({
+						agent: selectedAgent,
+						selectedAgents,
+						conversationMessages: workingConversationMessages,
+						aiRuntime,
+						tools,
+						toolNames,
+						abortSignal: options?.abortSignal,
+						previousAssistantText:
+							workingConversationMessages.at(-1)?.role === 'assistant'
+								? getMessageText(workingConversationMessages.at(-1)!)
+								: undefined,
+						onTextChunk: writeTextDelta,
+					})
+					if (result.error) {
+						return result
+					}
+					if (result.message) {
+						await this.syncThreadMetadata({
+							assistantText: getTextParts(result.message).join('\n').trim(),
+							messageCountOffset: 1,
+						})
+					}
+					return result
+				},
+			})
 		}
 		return createEmptyResponse()
 	}

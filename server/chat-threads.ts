@@ -110,11 +110,15 @@ export function createChatThreadsStore(db: D1Database) {
 	const database = createDb(db)
 	const agentsStore = createAgentsStore(db)
 
-	async function resolveThreadAgentIds(agentIds?: ReadonlyArray<string> | null) {
+	async function resolveThreadAgentIds(
+		agentIds?: ReadonlyArray<string> | null,
+	) {
 		const requestedAgentIds = normalizeRequestedAgentIds(agentIds)
 		if (requestedAgentIds.length > 0) {
 			const availableAgents = await agentsStore.listAvailable()
-			const availableAgentIds = new Set(availableAgents.map((agent) => agent.id))
+			const availableAgentIds = new Set(
+				availableAgents.map((agent) => agent.id),
+			)
 			const matchingAgentIds = requestedAgentIds.filter((agentId) =>
 				availableAgentIds.has(agentId),
 			)
@@ -213,7 +217,10 @@ export function createChatThreadsStore(db: D1Database) {
 				totalCount,
 			}
 		},
-		async createForUser(userId: number, agentIds?: ReadonlyArray<string> | null) {
+		async createForUser(
+			userId: number,
+			agentIds?: ReadonlyArray<string> | null,
+		) {
 			const resolvedAgentIds = await resolveThreadAgentIds(agentIds)
 			const record = await database.create(
 				chatThreadsTable,

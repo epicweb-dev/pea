@@ -17,9 +17,9 @@
 
 `pea` stands for `Product Engineer Agents`.
 
-It is the agent-side service for the Epic Systems Engineering Judgment
-Workshop. The separate workshop app owns the learner experience; `pea` provides
-the stakeholder simulations that learners talk to while they clarify ambiguous
+It is the agent-side service for the Epic Systems Engineering Judgment Workshop.
+The separate workshop app owns the learner experience; `pea` provides the
+stakeholder simulations that learners talk to while they clarify ambiguous
 requirements, surface constraints, and practice engineering judgment.
 
 The workshop thesis is simple: as AI takes on more implementation work, the
@@ -121,15 +121,15 @@ The current codebase is built on:
 
 ## Documentation
 
-| Document                                                           | Description                                      |
-| ------------------------------------------------------------------ | ------------------------------------------------ |
-| [`docs/product-overview.md`](./docs/product-overview.md)           | Purpose, scope, and workshop framing             |
-| [`docs/roadmap.md`](./docs/roadmap.md)                             | High-level project phases and priorities         |
-| [`docs/getting-started.md`](./docs/getting-started.md)             | Local setup and development commands             |
-| [`docs/architecture/index.md`](./docs/architecture/index.md)       | Runtime architecture and system boundaries       |
-| [`docs/environment-variables.md`](./docs/environment-variables.md) | Environment variable guidance                    |
-| [`docs/cloudflare-offerings.md`](./docs/cloudflare-offerings.md)   | Optional Cloudflare integrations                 |
-| [`docs/agents/setup.md`](./docs/agents/setup.md)                   | Local development and verification expectations  |
+| Document                                                           | Description                                     |
+| ------------------------------------------------------------------ | ----------------------------------------------- |
+| [`docs/product-overview.md`](./docs/product-overview.md)           | Purpose, scope, and workshop framing            |
+| [`docs/roadmap.md`](./docs/roadmap.md)                             | High-level project phases and priorities        |
+| [`docs/getting-started.md`](./docs/getting-started.md)             | Local setup and development commands            |
+| [`docs/architecture/index.md`](./docs/architecture/index.md)       | Runtime architecture and system boundaries      |
+| [`docs/environment-variables.md`](./docs/environment-variables.md) | Environment variable guidance                   |
+| [`docs/cloudflare-offerings.md`](./docs/cloudflare-offerings.md)   | Optional Cloudflare integrations                |
+| [`docs/agents/setup.md`](./docs/agents/setup.md)                   | Local development and verification expectations |
 
 ---
 

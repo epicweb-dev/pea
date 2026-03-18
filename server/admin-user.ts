@@ -1,4 +1,7 @@
-import { readAuthenticatedAppUser, type AuthenticatedAppUser } from './authenticated-user.ts'
+import {
+	readAuthenticatedAppUser,
+	type AuthenticatedAppUser,
+} from './authenticated-user.ts'
 import { isAdminEmail } from '#shared/admin.ts'
 
 export async function readAdminAppUser(

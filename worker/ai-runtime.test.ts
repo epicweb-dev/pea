@@ -33,12 +33,16 @@ test('createAiRuntime uses mock backend when AI_MODE=mock', async () => {
 		AI_MOCK_BASE_URL: mockServer.baseUrl,
 		AI_MOCK_API_KEY: 'token',
 	} as Env)
+	const streamedChunks: Array<string> = []
 
 	const result = await runtime.streamChatReply({
 		messages: [],
 		system: 'test',
 		tools: {},
 		toolNames: ['do_math'],
+		onTextChunk(chunk) {
+			streamedChunks.push(chunk)
+		},
 	})
 
 	expect(result).toEqual({
@@ -46,6 +50,7 @@ test('createAiRuntime uses mock backend when AI_MODE=mock', async () => {
 		text: 'hello from mock runtime',
 		chunks: ['hello ', 'from ', 'mock runtime'],
 	})
+	expect(streamedChunks).toEqual(['hello ', 'from ', 'mock runtime'])
 })
 
 test('createAiRuntime defaults to mock mode when AI_MODE is missing', async () => {
@@ -79,7 +84,20 @@ test('createAiRuntime gives a useful error for missing local remote credentials'
 			tools: {},
 			toolNames: [],
 		}),
-	).rejects.toThrow(
-		'Missing environment variables: CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN.',
+	).resolves.toMatchObject({
+		kind: 'error',
+	})
+	await expect(
+		runtime.streamChatReply({
+			messages: [],
+			system: 'test',
+			tools: {},
+			toolNames: [],
+		}),
+	).resolves.toHaveProperty(
+		'message',
+		expect.stringContaining(
+			'Missing environment variables: CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN.',
+		),
 	)
 })

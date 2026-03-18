@@ -195,8 +195,8 @@ through a different gateway.
 
 ## KV (app KV, separate from `OAUTH_KV`)
 
-This project already binds `OAUTH_KV` for OAuth/session state. Treat
-`OAUTH_KV` as "owned" by `@cloudflare/workers-oauth-provider`:
+This project already binds `OAUTH_KV` for OAuth/session state. Treat `OAUTH_KV`
+as "owned" by `@cloudflare/workers-oauth-provider`:
 
 - Avoid mixing app data into `OAUTH_KV`
 - Avoid key prefix collisions with the OAuth library

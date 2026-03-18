@@ -65,9 +65,7 @@ export function AccountRoute(handle: Handle) {
 					>
 						{email ? `Welcome, ${email}` : 'Welcome'}
 					</h1>
-					<p css={{ color: colors.textMuted }}>
-						You are signed in to pea.
-					</p>
+					<p css={{ color: colors.textMuted }}>You are signed in to pea.</p>
 					{email && isAdminEmail(email) ? (
 						<a href="/admin/agents" css={{ color: colors.primary }}>
 							Manage chat agents

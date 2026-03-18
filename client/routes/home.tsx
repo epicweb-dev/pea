@@ -90,8 +90,7 @@ export function HomeRoute(_handle: Handle) {
 								lineHeight: 1.1,
 							}}
 						>
-							Stakeholder simulations for engineering judgment
-							workshops
+							Stakeholder simulations for engineering judgment workshops
 						</h1>
 						<p
 							css={{
@@ -101,9 +100,9 @@ export function HomeRoute(_handle: Handle) {
 								maxWidth: '42rem',
 							}}
 						>
-							`pea` powers realistic conversations with ambiguous,
-							imperfect stakeholders so learners can practice clarifying
-							problems, surfacing constraints, and critiquing outcomes before
+							`pea` powers realistic conversations with ambiguous, imperfect
+							stakeholders so learners can practice clarifying problems,
+							surfacing constraints, and critiquing outcomes before
 							implementation.
 						</p>
 						<p
@@ -113,9 +112,9 @@ export function HomeRoute(_handle: Handle) {
 								maxWidth: '38rem',
 							}}
 						>
-							The workshop app owns the learner experience. `pea` owns the
-							agent side: scenario behavior, stakeholder simulation, and
-							instructor control.
+							The workshop app owns the learner experience. `pea` owns the agent
+							side: scenario behavior, stakeholder simulation, and instructor
+							control.
 						</p>
 					</div>
 				</div>
@@ -131,9 +130,18 @@ export function HomeRoute(_handle: Handle) {
 					}}
 				>
 					{[
-						['Realistic ambiguity', 'Stakeholders do not volunteer every requirement up front.'],
-						['Instructor control', 'Prompts and scenarios can be adjusted to fit each exercise.'],
-						['Workshop integration', 'Designed to plug into the separate workshop application.'],
+						[
+							'Realistic ambiguity',
+							'Stakeholders do not volunteer every requirement up front.',
+						],
+						[
+							'Instructor control',
+							'Prompts and scenarios can be adjusted to fit each exercise.',
+						],
+						[
+							'Workshop integration',
+							'Designed to plug into the separate workshop application.',
+						],
 					].map(([title, description]) => (
 						<div
 							key={title}
