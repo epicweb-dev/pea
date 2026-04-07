@@ -211,7 +211,9 @@ function createAssistantStreamResponse(input: {
 					})
 					return
 				}
-				const text = result.message ? getTextParts(result.message).join('\n').trim() : ''
+				const text = result.message
+					? getTextParts(result.message).join('\n').trim()
+					: ''
 				if (!result.message || !text) {
 					return
 				}
@@ -735,7 +737,9 @@ export class ChatAgent extends AIChatAgent<Env> {
 		const tools = this.mcp.getAITools()
 		const toolNames = this.mcp.listTools().map((tool) => tool.name)
 		const selectedAgents = await this.getSelectedAgentsForCurrentThread()
-		const conversationMessages = buildConversationMessagesForAgent(this.messages)
+		const conversationMessages = buildConversationMessagesForAgent(
+			this.messages,
+		)
 		const workingConversationMessages = [...conversationMessages]
 		const selectedAgent = selectAgentForTurn({
 			selectedAgents,

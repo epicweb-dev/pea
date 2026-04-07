@@ -123,13 +123,13 @@ export function getAgentMentionMatch(
 }
 
 function extractSearchTokens(value: string) {
-	return [...new Set(
-		normalizeAgentMatchValue(value)
-			.split(' ')
-			.filter(
-				(token) => token.length >= 3 && !keywordStopWords.has(token),
-			),
-	)]
+	return [
+		...new Set(
+			normalizeAgentMatchValue(value)
+				.split(' ')
+				.filter((token) => token.length >= 3 && !keywordStopWords.has(token)),
+		),
+	]
 }
 
 function getKeywordOverlapScore(text: string, agent: ThreadAgentConfig) {
@@ -176,8 +176,7 @@ export function isOneOnOneConversation(input: {
 	messages: Array<UIMessage>
 }) {
 	return (
-		input.selectedAgents.length === 1 &&
-		input.messages.at(-1)?.role === 'user'
+		input.selectedAgents.length === 1 && input.messages.at(-1)?.role === 'user'
 	)
 }
 
@@ -279,8 +278,8 @@ export function scoreAgentsForTurn(input: {
 				latestMessage,
 			}),
 		)
-		.filter(
-			(candidate): candidate is AgentResponseCandidate => Boolean(candidate),
+		.filter((candidate): candidate is AgentResponseCandidate =>
+			Boolean(candidate),
 		)
 		.sort(compareAgentResponseCandidates)
 	if (scoredCandidates.length > 0) {
@@ -291,7 +290,9 @@ export function scoreAgentsForTurn(input: {
 	}
 	const lastAssistantAgentId = getLastAssistantAgentId(input.messages)
 	const lastAssistantAgentIndex = lastAssistantAgentId
-		? input.selectedAgents.findIndex((agent) => agent.id === lastAssistantAgentId)
+		? input.selectedAgents.findIndex(
+				(agent) => agent.id === lastAssistantAgentId,
+			)
 		: -1
 	const fallbackAgent =
 		lastAssistantAgentIndex >= 0
@@ -319,7 +320,9 @@ export function canAllowThirdAgentException(input: {
 	messages: Array<UIMessage>
 	scoredCandidates: Array<AgentResponseCandidate>
 }) {
-	const consecutiveAgentMessages = getConsecutiveAgentMessageCount(input.messages)
+	const consecutiveAgentMessages = getConsecutiveAgentMessageCount(
+		input.messages,
+	)
 	if (consecutiveAgentMessages < 2) {
 		return true
 	}

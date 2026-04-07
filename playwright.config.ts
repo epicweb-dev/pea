@@ -16,7 +16,7 @@ export default defineConfig({
 		trace: 'on-first-retry',
 	},
 	webServer: {
-		command: 'bun run build:client && bun run preview:e2e',
+		command: 'bun run build:client && bun run preview:e2e:playwright',
 		url: baseURL,
 		reuseExistingServer: true,
 		env: {
@@ -24,6 +24,9 @@ export default defineConfig({
 			PORT: playwrightPort,
 			WRANGLER_LOG_PATH: './logs.local',
 			WRANGLER_DISABLE_REQUEST_BODY_DRAINING: 'true',
+			// Ensure E2E uses deterministic in-process mock AI even when the
+			// developer's `.env` sets `AI_MODE=remote` (Wrangler merges env).
+			AI_MODE: 'mock',
 		},
 	},
 	projects: [

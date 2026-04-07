@@ -403,7 +403,8 @@ export class ChatClient {
 								this.syncSnapshot({
 									isStreaming: true,
 									streamingMessageMetadata:
-										chunk.messageMetadata ?? this.snapshot.streamingMessageMetadata,
+										chunk.messageMetadata ??
+										this.snapshot.streamingMessageMetadata,
 								})
 							} else if (chunk.type === 'error' && chunk.errorText) {
 								this.activeRequestId = null

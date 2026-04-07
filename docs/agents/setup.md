@@ -25,6 +25,8 @@ Quick notes for getting a local pea environment running.
 
 - Copy `.env.example` to `.env` before starting any work, then update secrets as
   needed.
+- Local startup does not require creating Cloudflare D1 or KV resources. The
+  checked-in `wrangler.jsonc` keeps only binding names (no baked-in remote IDs).
 - `bun run dev` (starts mock API servers automatically and sets
   `RESEND_API_BASE_URL`, `AI_MODE=mock`, and `AI_MOCK_BASE_URL` to local mock
   Workers).
@@ -116,6 +118,9 @@ each PR preview is isolated:
 - D1 database: `<preview-worker-name>-db`
 - KV namespace (OAuth state): `<preview-worker-name>-oauth-kv`
 
+The workflow resolves or creates those resources, then writes their real IDs
+into a generated Wrangler config before running migrations and deploy.
+
 When a PR is closed, the cleanup job deletes the preview Worker(s) and these
 resources as well.
 
@@ -131,6 +136,10 @@ migrations/deploy:
 
 - D1 database: from `env.production.d1_databases` binding `APP_DB`
 - KV namespace: `OAUTH_KV` (defaults to `<worker-name>-oauth` when creating)
+
+Like preview deploys, production deploys inject the resolved D1/KV IDs into a
+generated Wrangler config at deploy time instead of relying on baked-in IDs in
+the checked-in template.
 
 Both the preview and production deploy workflows run a post-deploy healthcheck
 against `<deploy-url>/health` and fail the job if it does not return

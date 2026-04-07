@@ -115,6 +115,22 @@ test('supports selecting multiple agents before and during a chat', async ({
 	})
 
 	await page.goto('/chat')
+	await expect(
+		page.getByRole('heading', { name: 'Chats', exact: true }),
+	).toBeVisible()
+	// With threads in the list but no active thread, the draft agent picker is
+	// hidden; open a new thread so the composer (and picker) is shown.
+	const nonZeroAgentPicker = page.getByRole('button', {
+		name: /[1-9]\d* agents in this chat/,
+	})
+	if ((await nonZeroAgentPicker.count()) === 0) {
+		await page.getByRole('button', { name: 'New thread' }).click()
+		await expect(page).toHaveURL(/\/chat\/.+/)
+	}
+	// Default agent can take a moment to apply after navigation or new thread.
+	await expect(
+		page.getByRole('button', { name: '1 agents in this chat' }),
+	).toBeVisible({ timeout: 30_000 })
 
 	const draftAgentButton = page.getByRole('button', {
 		name: '1 agents in this chat',
@@ -142,8 +158,12 @@ test('supports selecting multiple agents before and during a chat', async ({
 	await expect(page).toHaveURL(/\/chat\/.+/)
 	const messages = page.locator('#chat-messages-scroll-container')
 	const firstAssistantMessage = messages.locator('article').nth(1)
-	await expect(firstAssistantMessage).toContainText('alpha agent:')
-	await expect(firstAssistantMessage).not.toContainText('beta agent:')
+	await expect(firstAssistantMessage.getByRole('strong')).toHaveText(
+		'alpha agent',
+	)
+	await expect(firstAssistantMessage.getByRole('strong')).not.toHaveText(
+		'beta agent',
+	)
 
 	const threadAgentButton = page.getByRole('button', {
 		name: '2 agents in this chat',
@@ -164,8 +184,12 @@ test('supports selecting multiple agents before and during a chat', async ({
 
 	await expect(messages.locator('article')).toHaveCount(4)
 	const secondAssistantMessage = messages.locator('article').nth(3)
-	await expect(secondAssistantMessage).not.toContainText('alpha agent:')
-	await expect(secondAssistantMessage).toContainText('beta agent:')
+	await expect(secondAssistantMessage.getByRole('strong')).toHaveText(
+		'beta agent',
+	)
+	await expect(secondAssistantMessage.getByRole('strong')).not.toHaveText(
+		'alpha agent',
+	)
 })
 
 test('uses the chat list route on mobile', async ({ page, login }) => {

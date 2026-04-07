@@ -15,10 +15,11 @@ This project uses the following resources:
   - `title`: `<app-name>-oauth`
 
 Production CI deploys now ensure these resources exist and create them when
-missing. Local setup does not create Cloudflare resources or rewrite
-`wrangler.jsonc` resource IDs. Cloudflare deploys do not auto-create these
-resources from bindings alone, so the deploy workflow runs
-`bun tools/ci/production-resources.ts ensure` first.
+missing. Local setup does not require Cloudflare resource creation. The
+checked-in `wrangler.jsonc` intentionally omits remote D1/KV IDs. Cloudflare
+deploys do not auto-create these resources from bindings alone, so the deploy
+workflow runs `bun tools/ci/production-resources.ts ensure` first and injects
+the resolved IDs into a generated Wrangler config for the deployment.
 
 ## Optional Cloudflare offerings
 
