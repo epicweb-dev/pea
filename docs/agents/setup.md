@@ -10,6 +10,7 @@ Quick notes for getting a local pea environment running.
 ## Install
 
 - `bun install`
+- `bun install` also runs `prepare`, which installs the Husky git hooks.
 
 ## Local development
 
@@ -46,12 +47,17 @@ Quick notes for getting a local pea environment running.
 
 ## Checks
 
+- Git hooks mirror the current `kody`/Epicflare setup:
+  - `pre-commit`: `lint-staged` on staged files, then `bun run typecheck`
+  - `pre-push`: `bun run test:push`
 - `bun run validate` runs format check, lint fix, build, typecheck, Playwright
   tests, and MCP E2E tests.
 - `bun run format` applies formatting updates.
 - `bun run test:e2e:install` to install Playwright browsers.
 - `bun run test:e2e` to run Playwright specs.
 - `bun run test:mcp` to run MCP server E2E tests.
+- `bun run test:push` runs the checks enforced by `pre-push` (`test:e2e` and
+  `test:mcp`).
 
 ## Documentation maintenance
 

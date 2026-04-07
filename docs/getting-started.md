@@ -21,6 +21,9 @@ We use Bun for installs and scripts.
 bun install
 ```
 
+That install also runs `prepare`, which installs the Husky git hooks for
+`pre-commit` and `pre-push`.
+
 ## Environment
 
 Copy `.env.example` to `.env` and fill in the values you need for your local

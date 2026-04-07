@@ -7,6 +7,15 @@
     "#*": "./*"
   },
   "description": "A starter and reference for building full stack web applications",
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}": [
+      "prettier --write",
+      "oxlint --fix"
+    ],
+    "*.{json,jsonc,md,css}": [
+      "prettier --write"
+    ]
+  },
   "repository": {
     "type": "git",
     "url": "git+ssh://git@github.com/epicweb-dev/pea.git"
@@ -30,6 +39,7 @@
     "format:check": "prettier --check .",
     "migrate:local": "bun ./wrangler-env.ts d1 migrations apply APP_DB --local",
     "migrate:e2e": "bun ./wrangler-env.ts d1 migrations apply APP_DB --local --persist-to .wrangler/state/e2e",
+    "prepare": "husky",
     "preview": "bun run build:mcp-apps && bun run migrate:local && bun ./wrangler-env.ts dev --local",
     "preview:e2e": "bun run build:mcp-apps && bun run migrate:e2e && bun ./wrangler-env.ts dev --local --persist-to .wrangler/state/e2e",
     "preview:e2e:playwright": "bun run migrate:e2e && bun ./wrangler-env.ts dev --local --persist-to .wrangler/state/e2e --var AI_MODE:mock",
@@ -40,7 +50,8 @@
     "test:e2e": "bun tools/prepare-e2e-env.ts && playwright test",
     "test:e2e:ui": "bun tools/prepare-e2e-env.ts && playwright test --ui",
     "test:e2e:install": "playwright install chromium --with-deps",
-    "test:mcp": "bun run build:mcp-apps && bun test mcp/mcp-server-e2e.test.ts"
+    "test:mcp": "bun run build:mcp-apps && bun test mcp/mcp-server-e2e.test.ts",
+    "test:push": "bun run test:e2e && bun run test:mcp"
   },
   "devDependencies": {
     "@epic-web/config": "^1.24.1",
@@ -49,6 +60,8 @@
     "@types/set-cookie-parser": "^2.4.10",
     "concurrently": "^9.2.1",
     "esbuild": "^0.27.4",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
     "oxlint": "^1.55.0",
     "prettier": "^3.8.1",
     "set-cookie-parser": "^3.0.1",

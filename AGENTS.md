@@ -47,5 +47,8 @@ See [.cursor/CLOUD.md](./.cursor/CLOUD.md) for the full quick-reference table.
     `bun tools/seed-test-data.ts --local --email me@kentcdodds.com --password iliketwix`
     (email: `me@kentcdodds.com`, password: `iliketwix`). Admin status is
     determined by email match in `shared/admin.ts`.
-- **No git hooks or pre-commit** checks are configured. Run `bun run validate`
-  manually before pushing.
+- **Git hooks are installed via Husky** when you run `bun install`.
+- **Pre-commit** runs `lint-staged` plus `bun run typecheck`.
+- **Pre-push** runs `bun run test:push` (`test:e2e` and `test:mcp`).
+- Run `bun run validate` manually when you want the full local gate
+  (`format:check`, `lint:fix`, `build`, `typecheck`, `test:e2e`, `test:mcp`).
