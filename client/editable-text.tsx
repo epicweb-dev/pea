@@ -1,4 +1,4 @@
-import { type Handle } from 'remix/component'
+import { type Handle } from 'remix/ui'
 
 type EditableTextProps = {
 	id: string
@@ -20,7 +20,7 @@ const inheritTextStyles = {
 	color: 'inherit',
 } as const
 
-export function EditableText(handle: Handle) {
+export function EditableText(handle: Handle<EditableTextProps>) {
 	let isEditing = false
 	let draftValue = ''
 	let isSaving = false
@@ -42,7 +42,8 @@ export function EditableText(handle: Handle) {
 		})
 	}
 
-	return (props: EditableTextProps) => {
+	return () => {
+		const props = handle.props
 		const buttonId = `${props.id}-button`
 
 		function startEditing() {

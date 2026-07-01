@@ -1,4 +1,4 @@
-import { type Handle } from 'remix/component'
+import { type Handle } from 'remix/ui'
 import { AgentMultiSelectCombobox } from '#client/agent-multi-select-combobox.tsx'
 import { ChatClient, type ChatClientSnapshot } from '#client/chat-client.ts'
 import { navigate, routerEvents } from '#client/client-router.tsx'
@@ -1094,11 +1094,15 @@ export function ChatRoute(handle: Handle) {
 		}
 	}
 
-	handle.on(routerEvents, {
-		navigate: () => {
-			void syncActiveThreadFromLocation()
-		},
-	})
+	const handleRouterNavigate = () => {
+		void syncActiveThreadFromLocation()
+	}
+	routerEvents.addEventListener('navigate', handleRouterNavigate)
+	handle.signal.addEventListener(
+		'abort',
+		() => routerEvents.removeEventListener('navigate', handleRouterNavigate),
+		{ once: true },
+	)
 
 	handle.queueTask(() => {
 		if (typeof window === 'undefined') return

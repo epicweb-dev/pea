@@ -1,4 +1,4 @@
-import { type Handle } from 'remix/component'
+import { type Handle } from 'remix/ui'
 import { clientRoutes } from './routes/index.tsx'
 import {
 	getPathname,
@@ -150,26 +150,24 @@ export function App(handle: Handle) {
 					) : null}
 				</nav>
 				<Router
-					setup={{
-						routes: clientRoutes,
-						fallback: (
-							<section>
-								<h2
-									css={{
-										fontSize: typography.fontSize.lg,
-										fontWeight: typography.fontWeight.semibold,
-										marginBottom: spacing.sm,
-										color: colors.text,
-									}}
-								>
-									Not Found
-								</h2>
-								<p css={{ color: colors.textMuted }}>
-									That route does not exist.
-								</p>
-							</section>
-						),
-					}}
+					routes={clientRoutes}
+					fallback={
+						<section>
+							<h2
+								css={{
+									fontSize: typography.fontSize.lg,
+									fontWeight: typography.fontWeight.semibold,
+									marginBottom: spacing.sm,
+									color: colors.text,
+								}}
+							>
+								Not Found
+							</h2>
+							<p css={{ color: colors.textMuted }}>
+								That route does not exist.
+							</p>
+						</section>
+					}
 				/>
 			</main>
 		)

@@ -1,4 +1,4 @@
-import { type Handle } from 'remix/component'
+import { type Handle } from 'remix/ui'
 import { createNotifications } from '#client/notifications.tsx'
 import {
 	colors,

@@ -1,4 +1,4 @@
-import { type Handle } from 'remix/component'
+import { type Handle } from 'remix/ui'
 import { buildAuthLink } from '#client/auth-links.ts'
 import { navigate } from '#client/client-router.tsx'
 import { fetchSessionInfo, type SessionStatus } from '#client/session.ts'
@@ -36,8 +36,8 @@ function buildAuthPath(mode: AuthMode, redirectTo: string | null) {
 	return buildAuthLink(path, redirectTo)
 }
 
-export function LoginRoute(handle: Handle, setup: LoginFormSetup = {}) {
-	let mode: AuthMode = setup.initialMode ?? 'login'
+export function LoginRoute(handle: Handle<LoginFormSetup>) {
+	let mode: AuthMode = handle.props.initialMode ?? 'login'
 	let status: AuthStatus = 'idle'
 	let message: string | null = null
 	let sessionStatus: SessionStatus = 'idle'

@@ -2,13 +2,17 @@ import {
 	getTableName,
 	getTablePrimaryKey,
 	type AdapterCapabilityOverrides,
-	type AdapterExecuteRequest,
-	type AdapterResult,
-	type AdapterStatement,
+	type DataManipulationOperation,
+	type DataManipulationRequest,
+	type DataManipulationResult,
 	type DatabaseAdapter,
+	type SqlStatement,
+	type TableRef,
 	type TransactionOptions,
 	type TransactionToken,
 } from 'remix/data-table'
+
+type AdapterStatement = DataManipulationOperation
 
 type SqliteCompileContext = {
 	values: Array<unknown>
@@ -52,6 +56,8 @@ export class D1DataTableAdapter implements DatabaseAdapter {
 		returning: boolean
 		savepoints: boolean
 		upsert: boolean
+		transactionalDdl: boolean
+		migrationLock: boolean
 	}
 
 	#database: D1Database
@@ -69,51 +75,59 @@ export class D1DataTableAdapter implements DatabaseAdapter {
 			returning: options?.capabilities?.returning ?? true,
 			savepoints: options?.capabilities?.savepoints ?? false,
 			upsert: options?.capabilities?.upsert ?? true,
+			transactionalDdl: options?.capabilities?.transactionalDdl ?? true,
+			migrationLock: options?.capabilities?.migrationLock ?? false,
 		}
 	}
 
-	async execute(request: AdapterExecuteRequest): Promise<AdapterResult> {
-		if (
-			request.statement.kind === 'insertMany' &&
-			request.statement.values.length === 0
-		) {
+	compileSql(operation: DataManipulationOperation): Array<SqlStatement> {
+		return [compileSqliteStatement(operation)]
+	}
+
+	async execute(
+		request: DataManipulationRequest,
+	): Promise<DataManipulationResult> {
+		const operation = request.operation
+		if (request.transaction) {
+			this.#assertTransaction(request.transaction)
+		}
+		if (operation.kind === 'insertMany' && operation.values.length === 0) {
 			return {
 				affectedRows: 0,
 				insertId: undefined,
-				rows: request.statement.returning ? [] : undefined,
+				rows: operation.returning ? [] : undefined,
 			}
 		}
 
-		const statement = compileSqliteStatement(request.statement)
+		const statement = this.compileSql(operation)[0]!
 		const prepared = this.#database
 			.prepare(statement.text)
-			.bind(...statement.values) as unknown as D1PreparedQuery
+			.bind(
+				...normalizeStatementValues(statement.values),
+			) as unknown as D1PreparedQuery
 
 		const shouldReadRows =
-			request.statement.kind === 'select' ||
-			request.statement.kind === 'count' ||
-			request.statement.kind === 'exists' ||
-			hasReturningClause(request.statement)
+			operation.kind === 'select' ||
+			operation.kind === 'count' ||
+			operation.kind === 'exists' ||
+			hasReturningClause(operation)
 
 		if (shouldReadRows) {
 			const result = (await prepared.all()) as D1StatementResult
 			let rows = normalizeRows(result.results ?? [])
-			if (
-				request.statement.kind === 'count' ||
-				request.statement.kind === 'exists'
-			) {
+			if (operation.kind === 'count' || operation.kind === 'exists') {
 				rows = normalizeCountRows(rows)
 			}
 			return {
 				rows,
 				affectedRows: normalizeAffectedRowsForReader(
-					request.statement.kind,
+					operation.kind,
 					rows,
 					result.meta,
 				),
 				insertId: normalizeInsertIdForReader(
-					request.statement.kind,
-					request.statement,
+					operation.kind,
+					operation,
 					rows,
 					result.meta,
 				),
@@ -122,13 +136,59 @@ export class D1DataTableAdapter implements DatabaseAdapter {
 
 		const result = (await prepared.run()) as D1StatementResult
 		return {
-			affectedRows: normalizeAffectedRowsForRun(request.statement.kind, result),
-			insertId: normalizeInsertIdForRun(
-				request.statement.kind,
-				request.statement,
-				result,
-			),
+			affectedRows: normalizeAffectedRowsForRun(operation.kind, result),
+			insertId: normalizeInsertIdForRun(operation.kind, operation, result),
 		}
+	}
+
+	async executeScript(
+		sql: string,
+		transaction?: TransactionToken,
+	): Promise<void> {
+		if (transaction) {
+			this.#assertTransaction(transaction)
+		}
+		await this.#database.exec(sql)
+	}
+
+	async hasTable(
+		table: TableRef,
+		transaction?: TransactionToken,
+	): Promise<boolean> {
+		if (transaction) {
+			this.#assertTransaction(transaction)
+		}
+		const masterTable = table.schema
+			? quoteIdentifier(table.schema) + '.sqlite_master'
+			: 'sqlite_master'
+		const result = await this.#database
+			.prepare(
+				'select 1 from ' + masterTable + ' where type = ? and name = ? limit 1',
+			)
+			.bind('table', table.name)
+			.all()
+		return (result.results ?? []).length > 0
+	}
+
+	async hasColumn(
+		table: TableRef,
+		column: string,
+		transaction?: TransactionToken,
+	): Promise<boolean> {
+		if (transaction) {
+			this.#assertTransaction(transaction)
+		}
+		const schemaPrefix = table.schema ? quoteIdentifier(table.schema) + '.' : ''
+		const result = await this.#database
+			.prepare(
+				'pragma ' +
+					schemaPrefix +
+					'table_info(' +
+					quoteIdentifier(table.name) +
+					')',
+			)
+			.all<{ name?: unknown }>()
+		return (result.results ?? []).some((row) => row.name === column)
 	}
 
 	async beginTransaction(
@@ -212,6 +272,10 @@ function normalizeRows(rows: Array<Record<string, unknown>>) {
 		}
 		return { ...row }
 	})
+}
+
+function normalizeStatementValues(values: Array<unknown>) {
+	return values.map((value) => (value === undefined ? null : value))
 }
 
 function normalizeCountRows(rows: Array<Record<string, unknown>>) {

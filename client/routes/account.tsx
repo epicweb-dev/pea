@@ -1,4 +1,4 @@
-import { type Handle } from 'remix/component'
+import { type Handle } from 'remix/ui'
 import { isAdminEmail } from '#shared/admin.ts'
 import { colors, spacing, typography } from '#client/styles/tokens.ts'
 

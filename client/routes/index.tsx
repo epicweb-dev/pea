@@ -17,7 +17,7 @@ export const clientRoutes = {
 	'/admin/agents': <AdminAgentsRoute />,
 	'/account': <AccountRoute />,
 	'/login': <LoginRoute />,
-	'/signup': <LoginRoute setup={{ initialMode: 'signup' }} />,
+	'/signup': <LoginRoute initialMode="signup" />,
 	'/reset-password': <ResetPasswordRoute />,
 	'/oauth/authorize': <OAuthAuthorizeRoute />,
 	'/oauth/callback': <OAuthCallbackRoute />,
