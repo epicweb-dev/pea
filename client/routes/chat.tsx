@@ -1,4 +1,4 @@
-import { type Handle } from 'remix/component'
+import { type Handle } from 'remix/ui'
 import { AgentMultiSelectCombobox } from '#client/agent-multi-select-combobox.tsx'
 import { ChatClient, type ChatClientSnapshot } from '#client/chat-client.ts'
 import { navigate, routerEvents } from '#client/client-router.tsx'
@@ -1094,11 +1094,15 @@ export function ChatRoute(handle: Handle) {
 		}
 	}
 
-	handle.on(routerEvents, {
-		navigate: () => {
-			void syncActiveThreadFromLocation()
-		},
-	})
+	const handleRouterNavigate = () => {
+		void syncActiveThreadFromLocation()
+	}
+	routerEvents.addEventListener('navigate', handleRouterNavigate)
+	handle.signal.addEventListener(
+		'abort',
+		() => routerEvents.removeEventListener('navigate', handleRouterNavigate),
+		{ once: true },
+	)
 
 	handle.queueTask(() => {
 		if (typeof window === 'undefined') return
@@ -1464,11 +1468,7 @@ export function ChatRoute(handle: Handle) {
 											key={thread.id}
 											css={{
 												position: 'relative',
-												'&:hover [data-thread-delete-button="true"], &:focus-within [data-thread-delete-button="true"]':
-													{
-														opacity: 1,
-														pointerEvents: 'auto',
-													},
+												isolation: 'isolate',
 											}}
 										>
 											<button
@@ -1477,6 +1477,8 @@ export function ChatRoute(handle: Handle) {
 													click: () => navigate(buildThreadHref(thread.id)),
 												}}
 												css={{
+													position: 'relative',
+													zIndex: 0,
 													display: 'grid',
 													gap: spacing.xs,
 													width: '100%',
@@ -1554,6 +1556,7 @@ export function ChatRoute(handle: Handle) {
 												}
 												css={{
 													position: 'absolute',
+													zIndex: 1,
 													right: spacing.sm,
 													bottom: spacing.sm,
 													display: 'inline-flex',
@@ -1579,13 +1582,9 @@ export function ChatRoute(handle: Handle) {
 														? colors.onDanger
 														: colors.textMuted,
 													cursor: 'pointer',
-													opacity: 0,
-													pointerEvents: 'none',
+													opacity: 1,
+													pointerEvents: 'auto',
 													transition: `opacity ${transitions.normal}, background-color ${transitions.normal}, border-color ${transitions.normal}, color ${transitions.normal}`,
-													[mq.mobile]: {
-														opacity: 1,
-														pointerEvents: 'auto',
-													},
 													'&:hover': {
 														backgroundColor: colors.danger,
 														borderColor: colors.dangerHover,

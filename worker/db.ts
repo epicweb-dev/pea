@@ -1,60 +1,59 @@
-import { createDatabase, createTable, sql } from 'remix/data-table'
-import { nullable, number, optional, string } from 'remix/data-schema'
+import { column as c, createDatabase, table, sql } from 'remix/data-table'
 import { createD1DataTableAdapter } from './d1-data-table-adapter.ts'
 
-export const usersTable = createTable({
+export const usersTable = table({
 	name: 'users',
 	columns: {
-		id: number(),
-		username: string(),
-		email: string(),
-		password_hash: string(),
-		created_at: string(),
-		updated_at: string(),
+		id: c.integer(),
+		username: c.text(),
+		email: c.text(),
+		password_hash: c.text(),
+		created_at: c.text(),
+		updated_at: c.text(),
 	},
 	primaryKey: 'id',
 })
 
-export const passwordResetsTable = createTable({
+export const passwordResetsTable = table({
 	name: 'password_resets',
 	columns: {
-		id: number(),
-		user_id: number(),
-		token_hash: string(),
-		expires_at: number(),
-		created_at: string(),
+		id: c.integer(),
+		user_id: c.integer(),
+		token_hash: c.text(),
+		expires_at: c.integer(),
+		created_at: c.text(),
 	},
 	primaryKey: 'id',
 })
 
-export const mockResendMessagesTable = createTable({
+export const mockResendMessagesTable = table({
 	name: 'mock_resend_messages',
 	columns: {
-		id: string(),
-		token_hash: string(),
-		received_at: number(),
-		from_email: string(),
-		to_json: string(),
-		subject: string(),
-		html: string(),
-		payload_json: string(),
+		id: c.text(),
+		token_hash: c.text(),
+		received_at: c.integer(),
+		from_email: c.text(),
+		to_json: c.text(),
+		subject: c.text(),
+		html: c.text(),
+		payload_json: c.text(),
 	},
 	primaryKey: 'id',
 })
 
-export const chatThreadsTable = createTable({
+export const chatThreadsTable = table({
 	name: 'chat_threads',
 	columns: {
-		id: string(),
-		user_id: number(),
-		agent_id: optional(nullable(string())),
-		agent_ids_json: string(),
-		title: string(),
-		last_message_preview: string(),
-		message_count: number(),
-		created_at: string(),
-		updated_at: string(),
-		deleted_at: optional(nullable(string())),
+		id: c.text(),
+		user_id: c.integer(),
+		agent_id: c.text().nullable(),
+		agent_ids_json: c.text(),
+		title: c.text(),
+		last_message_preview: c.text(),
+		message_count: c.integer(),
+		created_at: c.text(),
+		updated_at: c.text(),
+		deleted_at: c.text().nullable(),
 	},
 	primaryKey: 'id',
 	timestamps: {
@@ -63,19 +62,19 @@ export const chatThreadsTable = createTable({
 	},
 })
 
-export const agentsTable = createTable({
+export const agentsTable = table({
 	name: 'agents',
 	columns: {
-		id: string(),
-		name: string(),
-		system_prompt: string(),
-		model_preset: string(),
-		custom_model: optional(nullable(string())),
-		is_active: number(),
-		is_default: number(),
-		created_at: string(),
-		updated_at: string(),
-		deleted_at: optional(nullable(string())),
+		id: c.text(),
+		name: c.text(),
+		system_prompt: c.text(),
+		model_preset: c.text(),
+		custom_model: c.text().nullable(),
+		is_active: c.integer(),
+		is_default: c.integer(),
+		created_at: c.text(),
+		updated_at: c.text(),
+		deleted_at: c.text().nullable(),
 	},
 	primaryKey: 'id',
 	timestamps: {
@@ -84,17 +83,17 @@ export const agentsTable = createTable({
 	},
 })
 
-export const mockAiRequestsTable = createTable({
+export const mockAiRequestsTable = table({
 	name: 'mock_ai_requests',
 	columns: {
-		id: string(),
-		token_hash: string(),
-		received_at: number(),
-		scenario: string(),
-		last_user_message: string(),
-		tool_names_json: string(),
-		request_json: string(),
-		response_text: string(),
+		id: c.text(),
+		token_hash: c.text(),
+		received_at: c.integer(),
+		scenario: c.text(),
+		last_user_message: c.text(),
+		tool_names_json: c.text(),
+		request_json: c.text(),
+		response_text: c.text(),
 	},
 	primaryKey: 'id',
 })

@@ -1,4 +1,4 @@
-import { type Handle } from 'remix/component'
+import { type Handle } from 'remix/ui'
 import {
 	colors,
 	radius,
@@ -11,8 +11,8 @@ type CounterSetup = {
 	initial?: number
 }
 
-export function Counter(handle: Handle, setup: CounterSetup = {}) {
-	let count = setup.initial ?? 0
+export function Counter(handle: Handle<CounterSetup>) {
+	let count = handle.props.initial ?? 0
 
 	function increment() {
 		count += 1

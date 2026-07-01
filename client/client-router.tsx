@@ -1,4 +1,4 @@
-import { type Handle } from 'remix/component'
+import { type Handle } from 'remix/ui'
 
 type RouterSetup = {
 	routes: Record<string, JSX.Element>
@@ -249,11 +249,18 @@ function ensureRouter() {
 	document.addEventListener('submit', handleDocumentSubmit)
 }
 
-export function listenToRouterNavigation(handle: Handle, listener: () => void) {
+export function listenToRouterNavigation(
+	handle: Pick<Handle, 'signal'>,
+	listener: () => void,
+) {
 	ensureRouter()
-	handle.on(routerEvents, {
-		navigate: () => listener(),
-	})
+	const onNavigate = () => listener()
+	routerEvents.addEventListener('navigate', onNavigate)
+	handle.signal.addEventListener(
+		'abort',
+		() => routerEvents.removeEventListener('navigate', onNavigate),
+		{ once: true },
+	)
 }
 
 export function getPathname() {
@@ -281,15 +288,15 @@ export function navigate(to: string) {
 	notify()
 }
 
-export function Router(handle: Handle, setup: RouterSetup) {
+export function Router(handle: Handle<RouterSetup>) {
 	listenToRouterNavigation(handle, () => {
 		void handle.update()
 	})
 
 	return () => {
 		const path = getPathname()
-		const routeElement = matchRoute(path, setup.routes)
+		const routeElement = matchRoute(path, handle.props.routes)
 		if (routeElement) return routeElement
-		return setup.fallback ?? null
+		return handle.props.fallback ?? null
 	}
 }

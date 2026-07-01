@@ -1,4 +1,4 @@
-import { type BuildAction } from 'remix/fetch-router'
+import { type Action } from 'remix/fetch-router'
 import { readAuthenticatedAppUser } from '#server/authenticated-user.ts'
 import { isAdminEmail } from '#shared/admin.ts'
 import { fallbackRemoteChatModel } from '#shared/chat.ts'
@@ -54,7 +54,7 @@ function readOptionalBoolean(value: unknown) {
 
 export const adminAgentsPage = {
 	middleware: [],
-	async action({ request }) {
+	async handler({ request }) {
 		const { session, setCookie } = await readAuthSessionResult(request)
 		if (!session) {
 			return redirectToLogin(request)
@@ -73,17 +73,14 @@ export const adminAgentsPage = {
 		}
 		return response
 	},
-} satisfies BuildAction<
-	typeof routes.adminAgents.method,
-	typeof routes.adminAgents.pattern
->
+} satisfies Action<typeof routes.adminAgents>
 
 export function createAdminAgentsHandler(appEnv: AppEnv) {
 	const store = createAgentsStore(appEnv.APP_DB)
 
 	return {
 		middleware: [],
-		async action({ request }) {
+		async handler({ request }) {
 			const { response } = await requireAdminApiUser(request, appEnv as Env)
 			if (response) return response
 
@@ -133,10 +130,8 @@ export function createAdminAgentsHandler(appEnv: AppEnv) {
 			})
 			return jsonResponse({ ok: true, agent }, { status: 201 })
 		},
-	} satisfies BuildAction<
-		| typeof routes.adminAgentsData.method
-		| typeof routes.adminAgentsCreate.method,
-		typeof routes.adminAgentsData.pattern
+	} satisfies Action<
+		typeof routes.adminAgentsData | typeof routes.adminAgentsCreate
 	>
 }
 
@@ -145,7 +140,7 @@ export function createUpdateAdminAgentHandler(appEnv: AppEnv) {
 
 	return {
 		middleware: [],
-		async action({ request }) {
+		async handler({ request }) {
 			const { response } = await requireAdminApiUser(request, appEnv as Env)
 			if (response) return response
 
@@ -195,10 +190,7 @@ export function createUpdateAdminAgentHandler(appEnv: AppEnv) {
 
 			return jsonResponse({ ok: true, agent })
 		},
-	} satisfies BuildAction<
-		typeof routes.adminAgentsUpdate.method,
-		typeof routes.adminAgentsUpdate.pattern
-	>
+	} satisfies Action<typeof routes.adminAgentsUpdate>
 }
 
 export function createDeleteAdminAgentHandler(appEnv: AppEnv) {
@@ -206,7 +198,7 @@ export function createDeleteAdminAgentHandler(appEnv: AppEnv) {
 
 	return {
 		middleware: [],
-		async action({ request }) {
+		async handler({ request }) {
 			const { response } = await requireAdminApiUser(request, appEnv as Env)
 			if (response) return response
 
@@ -231,10 +223,7 @@ export function createDeleteAdminAgentHandler(appEnv: AppEnv) {
 
 			return jsonResponse({ ok: true })
 		},
-	} satisfies BuildAction<
-		typeof routes.adminAgentsDelete.method,
-		typeof routes.adminAgentsDelete.pattern
-	>
+	} satisfies Action<typeof routes.adminAgentsDelete>
 }
 
 export function createSetDefaultAdminAgentHandler(appEnv: AppEnv) {
@@ -242,7 +231,7 @@ export function createSetDefaultAdminAgentHandler(appEnv: AppEnv) {
 
 	return {
 		middleware: [],
-		async action({ request }) {
+		async handler({ request }) {
 			const { response } = await requireAdminApiUser(request, appEnv as Env)
 			if (response) return response
 
@@ -267,8 +256,5 @@ export function createSetDefaultAdminAgentHandler(appEnv: AppEnv) {
 
 			return jsonResponse({ ok: true, agent })
 		},
-	} satisfies BuildAction<
-		typeof routes.adminAgentsDefault.method,
-		typeof routes.adminAgentsDefault.pattern
-	>
+	} satisfies Action<typeof routes.adminAgentsDefault>
 }

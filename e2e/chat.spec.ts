@@ -59,11 +59,18 @@ test('creates and deletes chat threads when authenticated', async ({
 		page.locator('#chat-messages-scroll-container').getByText('Hello there'),
 	).toBeVisible()
 
+	const firstThread = page
+		.getByRole('complementary')
+		.getByRole('button', {
+			name: /New chat.*This is a mock completion.*2 messages/s,
+		})
+		.first()
+	await firstThread.hover()
 	await page
 		.getByRole('complementary')
-		.getByRole('button', { name: 'Delete' })
+		.getByRole('button', { name: /delete chat/i })
 		.first()
-		.click({ force: true })
+		.click()
 	await page.getByRole('button', { name: /confirm delete chat/i }).click()
 	await expect(page).toHaveURL(/\/chat$/)
 	await expect(page.getByRole('textbox', { name: 'Message' })).toBeVisible()
@@ -105,12 +112,15 @@ test('supports selecting multiple agents before and during a chat', async ({
 		email: 'me@kentcdodds.com',
 		password: 'password123',
 	})
+	const agentSuffix = crypto.randomUUID().slice(0, 8)
+	const alphaAgentName = `alpha agent ${agentSuffix}`
+	const betaAgentName = `beta agent ${agentSuffix}`
 	await createManagedAgent(page, {
-		name: 'alpha agent',
+		name: alphaAgentName,
 		systemPrompt: 'You are alpha agent.',
 	})
 	await createManagedAgent(page, {
-		name: 'beta agent',
+		name: betaAgentName,
 		systemPrompt: 'You are beta agent.',
 	})
 
@@ -139,9 +149,9 @@ test('supports selecting multiple agents before and during a chat', async ({
 	const searchAgentsInput = page.getByRole('searchbox', {
 		name: 'Search agents',
 	})
-	await searchAgentsInput.fill('alpha agent')
+	await searchAgentsInput.fill(alphaAgentName)
 	await page.keyboard.press('Enter')
-	await searchAgentsInput.fill('beta agent')
+	await searchAgentsInput.fill(betaAgentName)
 	await page.keyboard.press('Enter')
 	await searchAgentsInput.fill('default agent')
 	await page.keyboard.press('Enter')
@@ -159,10 +169,10 @@ test('supports selecting multiple agents before and during a chat', async ({
 	const messages = page.locator('#chat-messages-scroll-container')
 	const firstAssistantMessage = messages.locator('article').nth(1)
 	await expect(firstAssistantMessage.getByRole('strong')).toHaveText(
-		'alpha agent',
+		alphaAgentName,
 	)
 	await expect(firstAssistantMessage.getByRole('strong')).not.toHaveText(
-		'beta agent',
+		betaAgentName,
 	)
 
 	const threadAgentButton = page.getByRole('button', {
@@ -172,7 +182,7 @@ test('supports selecting multiple agents before and during a chat', async ({
 	const activeSearchAgentsInput = page.getByRole('searchbox', {
 		name: 'Search agents',
 	})
-	await activeSearchAgentsInput.fill('alpha agent')
+	await activeSearchAgentsInput.fill(alphaAgentName)
 	await page.keyboard.press('Enter')
 	await page.keyboard.press('Escape')
 	await expect(
@@ -185,10 +195,10 @@ test('supports selecting multiple agents before and during a chat', async ({
 	await expect(messages.locator('article')).toHaveCount(4)
 	const secondAssistantMessage = messages.locator('article').nth(3)
 	await expect(secondAssistantMessage.getByRole('strong')).toHaveText(
-		'beta agent',
+		betaAgentName,
 	)
 	await expect(secondAssistantMessage.getByRole('strong')).not.toHaveText(
-		'alpha agent',
+		alphaAgentName,
 	)
 })
 

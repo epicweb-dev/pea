@@ -1,4 +1,4 @@
-import { type BuildAction } from 'remix/fetch-router'
+import { type Action } from 'remix/fetch-router'
 import { readAuthenticatedAppUser } from '#server/authenticated-user.ts'
 import { createAgentsStore } from '#server/agents.ts'
 import { type routes } from '#server/routes.ts'
@@ -20,7 +20,7 @@ export function createChatAgentsHandler(appEnv: AppEnv) {
 
 	return {
 		middleware: [],
-		async action({ request }) {
+		async handler({ request }) {
 			const user = await readAuthenticatedAppUser(request, appEnv as Env)
 			if (!user) {
 				return jsonResponse(
@@ -32,8 +32,5 @@ export function createChatAgentsHandler(appEnv: AppEnv) {
 			const agents = await store.listAvailable()
 			return jsonResponse({ ok: true, agents })
 		},
-	} satisfies BuildAction<
-		typeof routes.chatAgents.method,
-		typeof routes.chatAgents.pattern
-	>
+	} satisfies Action<typeof routes.chatAgents>
 }
