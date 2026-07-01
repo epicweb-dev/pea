@@ -1,10 +1,16 @@
-import { css as cssMixin, Fragment, on as onMixin } from 'remix/ui'
+import {
+	css as cssMixin,
+	Fragment,
+	on as onMixin,
+	type Handle,
+	type RemixElement,
+	type RemixNode,
+} from 'remix/ui'
 import {
 	jsx as remixJsx,
 	jsxDEV as remixJsxDev,
 	jsxs as remixJsxs,
 } from 'remix/ui/jsx-runtime'
-import { type Handle, type RemixElement, type RemixNode } from 'remix/ui'
 
 type LegacyEventHandler<event extends Event = Event> = {
 	bivarianceHack(event: event, signal: AbortSignal): void

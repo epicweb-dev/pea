@@ -59,11 +59,18 @@ test('creates and deletes chat threads when authenticated', async ({
 		page.locator('#chat-messages-scroll-container').getByText('Hello there'),
 	).toBeVisible()
 
+	const firstThread = page
+		.getByRole('complementary')
+		.getByRole('button', {
+			name: /New chat.*This is a mock completion.*2 messages/s,
+		})
+		.first()
+	await firstThread.hover()
 	await page
 		.getByRole('complementary')
-		.getByRole('button', { name: 'Delete' })
+		.getByRole('button', { name: /delete chat/i })
 		.first()
-		.click({ force: true })
+		.click()
 	await page.getByRole('button', { name: /confirm delete chat/i }).click()
 	await expect(page).toHaveURL(/\/chat$/)
 	await expect(page.getByRole('textbox', { name: 'Message' })).toBeVisible()

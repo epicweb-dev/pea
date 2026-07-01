@@ -1468,11 +1468,7 @@ export function ChatRoute(handle: Handle) {
 											key={thread.id}
 											css={{
 												position: 'relative',
-												'&:hover [data-thread-delete-button="true"], &:focus-within [data-thread-delete-button="true"]':
-													{
-														opacity: 1,
-														pointerEvents: 'auto',
-													},
+												isolation: 'isolate',
 											}}
 										>
 											<button
@@ -1481,6 +1477,8 @@ export function ChatRoute(handle: Handle) {
 													click: () => navigate(buildThreadHref(thread.id)),
 												}}
 												css={{
+													position: 'relative',
+													zIndex: 0,
 													display: 'grid',
 													gap: spacing.xs,
 													width: '100%',
@@ -1558,6 +1556,7 @@ export function ChatRoute(handle: Handle) {
 												}
 												css={{
 													position: 'absolute',
+													zIndex: 1,
 													right: spacing.sm,
 													bottom: spacing.sm,
 													display: 'inline-flex',
@@ -1583,13 +1582,9 @@ export function ChatRoute(handle: Handle) {
 														? colors.onDanger
 														: colors.textMuted,
 													cursor: 'pointer',
-													opacity: 0,
-													pointerEvents: 'none',
+													opacity: 1,
+													pointerEvents: 'auto',
 													transition: `opacity ${transitions.normal}, background-color ${transitions.normal}, border-color ${transitions.normal}, color ${transitions.normal}`,
-													[mq.mobile]: {
-														opacity: 1,
-														pointerEvents: 'auto',
-													},
 													'&:hover': {
 														backgroundColor: colors.danger,
 														borderColor: colors.dangerHover,
