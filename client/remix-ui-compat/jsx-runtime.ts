@@ -3,6 +3,7 @@ import {
 	Fragment,
 	on as onMixin,
 	type Handle,
+	type Props as RemixProps,
 	type RemixElement,
 	type RemixNode,
 } from 'remix/ui'
@@ -12,8 +13,8 @@ import {
 	jsxs as remixJsxs,
 } from 'remix/ui/jsx-runtime'
 
-type LegacyEventHandler<event extends Event = Event> = {
-	bivarianceHack(event: event, signal: AbortSignal): void
+type LegacyEventHandler = {
+	bivarianceHack(event: any, signal: AbortSignal): void
 }['bivarianceHack']
 type LegacyEventMap = Record<string, LegacyEventHandler>
 type RenderFn = () => RemixNode
@@ -24,6 +25,16 @@ type LegacyProps = Record<string, unknown> & {
 	key?: unknown
 	mix?: unknown
 	on?: LegacyEventMap
+}
+type KnownElementName =
+	| keyof HTMLElementTagNameMap
+	| keyof SVGElementTagNameMap
+	| keyof MathMLElementTagNameMap
+type CompatIntrinsicElements = {
+	[elementName in KnownElementName]: RemixProps<
+		elementName & keyof globalThis.JSX.IntrinsicElements
+	> &
+		LegacyProps
 }
 
 type ElementType = string | ((handle: Handle<any, any>) => RenderFn)
@@ -96,7 +107,5 @@ export namespace JSX {
 			? { key?: unknown }
 			: componentProps & { key?: unknown }
 		: props
-	export interface IntrinsicElements {
-		[elementName: string]: LegacyProps
-	}
+	export type IntrinsicElements = CompatIntrinsicElements
 }

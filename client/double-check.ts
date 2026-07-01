@@ -40,8 +40,7 @@ export function createDoubleCheck(handle: Handle) {
 		getButtonProps<Props extends ButtonLikeProps>(props?: Props): Props {
 			const buttonProps = props ?? ({} as Props)
 
-			const onBlur: BlurHandler = (event) => {
-				if (event.relatedTarget === null) return
+			const onBlur: BlurHandler = () => {
 				setDoubleCheck(false)
 			}
 
