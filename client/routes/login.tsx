@@ -1,4 +1,5 @@
 import { type Handle } from 'remix/ui'
+import checkbox from 'remix/ui/checkbox'
 import { buildAuthLink } from '#client/auth-links.ts'
 import { navigate } from '#client/client-router.tsx'
 import { fetchSessionInfo, type SessionStatus } from '#client/session.ts'
@@ -227,6 +228,7 @@ export function LoginRoute(handle: Handle<LoginFormSetup>) {
 							<input
 								type="checkbox"
 								name="rememberMe"
+								mix={[...checkbox()]}
 								css={{
 									marginTop: '0.15rem',
 								}}

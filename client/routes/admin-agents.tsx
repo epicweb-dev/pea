@@ -1,4 +1,5 @@
 import { type Handle } from 'remix/ui'
+import checkbox from 'remix/ui/checkbox'
 import { createNotifications } from '#client/notifications.tsx'
 import {
 	colors,
@@ -611,6 +612,7 @@ export function AdminAgentsRoute(handle: Handle) {
 							<input
 								type="checkbox"
 								checked={draft.isActive}
+								mix={[...checkbox()]}
 								on={{
 									change: (event) => handleCheckboxInput('isActive', event),
 								}}
@@ -624,6 +626,7 @@ export function AdminAgentsRoute(handle: Handle) {
 								<input
 									type="checkbox"
 									checked={draft.makeDefault}
+									mix={[...checkbox()]}
 									on={{
 										change: (event) =>
 											handleCheckboxInput('makeDefault', event),
