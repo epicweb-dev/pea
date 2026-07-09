@@ -26,19 +26,18 @@ Keep each Markdown file to roughly 200 lines or fewer. If a README grows beyond
 that, split it into multiple files and update the package `index.md` to link the
 new chunks.
 
-## 3) Refresh component docs
+## 3) Refresh UI docs
 
-`component` is the only package with a `docs` directory. Sync every file from:
+Remix Beta 5 replaced the alpha `component` and `interaction` entrypoints with
+`ui`. Refresh the current package README from:
 
 ```
-https://github.com/remix-run/remix/tree/main/packages/component/docs
+https://github.com/remix-run/remix/tree/main/packages/ui
 ```
 
-Update the split files in `docs/agents/remix/component/` to match upstream. Keep
-all docs: `animate`, `components`, `composition`, `context`, `events`,
-`getting-started`, `handle`, `interactions`, `patterns`, `spring`, `styling`,
-`testing`, `tween`. If any single doc exceeds roughly 200 lines, split it into
-multiple files and add links in `component/index.md`.
+Keep `docs/agents/remix/beta-5-adoption-audit.md` focused on this repository's
+usage. The existing `component/` and `interaction/` directories are historical
+alpha references; do not present them as current API guidance.
 
 ## 4) Keep the index current
 

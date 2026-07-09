@@ -18,7 +18,8 @@ Docs for every package in https://github.com/remix-run/remix/tree/main/packages.
 
 ## Start here
 
-- Building UI with Remix Component: [component](./component/index.md)
+- Building UI with Remix UI: [Beta 5 adoption audit](./beta-5-adoption-audit.md)
+  and the installed `@remix-run/ui` README
 - Routing and request handling: [fetch-router](./fetch-router/index.md) +
   [route-pattern](./route-pattern.md)
 - Sessions and cookies: [session](./session/index.md) +
@@ -39,27 +40,22 @@ Docs for every package in https://github.com/remix-run/remix/tree/main/packages.
 ## pea adoption snapshot
 
 - Primary runtime packages in active use:
-  - `remix/component`
+  - `remix/ui`
   - `remix/fetch-router`
   - `remix/data-schema`
   - `remix/data-table`
 - D1 integration uses `remix/data-table` with a repository adapter
   (`worker/d1-data-table-adapter.ts`) instead of `remix/data-table-sqlite`.
-- Package coverage audit against installed `remix@3.0.0-alpha.3` top-level
-  exports: no missing Remix package docs in this index.
+- The installed framework version and relevant Beta 5 adoption opportunities are
+  recorded in the [Beta 5 adoption audit](./beta-5-adoption-audit.md).
 
 ## UI and components
 
-- [component](./component/index.md)
-  - [Getting started](./component/getting-started.md)
-  - [Components](./component/components.md)
-  - [Styling basics](./component/styling-basics.md)
-  - [Animate basics](./component/animate-basics.md)
-  - [Testing](./component/testing.md)
-- [interaction](./interaction/index.md)
-  - [Event listeners and interactions](./interaction/listeners.md)
-  - [Containers and disposal](./interaction/containers-and-disposal.md)
-  - [Custom interactions and typed targets](./interaction/custom-interactions.md)
+- [Beta 5 adoption audit](./beta-5-adoption-audit.md)
+- The `remix/ui` runtime and first-party components are documented in the
+  installed `node_modules/@remix-run/ui/README.md`.
+- `component/` and `interaction/` contain historical alpha documentation and are
+  not current Beta 5 API guidance.
 
 ## Routing and requests
 
@@ -144,7 +140,7 @@ Docs for every package in https://github.com/remix-run/remix/tree/main/packages.
 | Package                    | Focus                                      | Docs                                                          |
 | -------------------------- | ------------------------------------------ | ------------------------------------------------------------- |
 | async-context-middleware   | AsyncLocalStorage context for fetch-router | [async-context-middleware](./async-context-middleware.md)     |
-| component                  | Remix Component UI system                  | [component](./component/index.md)                             |
+| ui                         | Runtime and first-party UI components      | [Beta 5 audit](./beta-5-adoption-audit.md)                    |
 | compression-middleware     | Response compression for fetch-router      | [compression-middleware](./compression-middleware/index.md)   |
 | cookie                     | Cookie parsing, signing, and serialization | [cookie](./cookie.md)                                         |
 | data-schema                | Runtime validation and schema parsing      | [data-schema](./data-schema.md)                               |
@@ -161,7 +157,6 @@ Docs for every package in https://github.com/remix-run/remix/tree/main/packages.
 | fs                         | Lazy file system utilities                 | [fs](./fs.md)                                                 |
 | headers                    | Header parsing and helpers                 | [headers](./headers/index.md)                                 |
 | html-template              | Safe HTML template tag                     | [html-template](./html-template.md)                           |
-| interaction                | Event helpers and interactions             | [interaction](./interaction/index.md)                         |
 | lazy-file                  | Streaming File/Blob implementation         | [lazy-file](./lazy-file.md)                                   |
 | logger-middleware          | Request/response logging                   | [logger-middleware](./logger-middleware.md)                   |
 | method-override-middleware | HTML form method override                  | [method-override-middleware](./method-override-middleware.md) |
